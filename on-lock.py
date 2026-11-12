@@ -7,7 +7,6 @@ import os
 import importlib
 import getpass
 
-
 while True:
     for lib in ['requests', 'ntplib']:
         try:
@@ -24,22 +23,19 @@ import requests, json, hashlib, urllib.parse, time, sys, base64, ntplib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse, quote
 
-version = "1.2 Ultimate"
+version = "1.3 Clean Pro"
 
-# =====  (Termux Wake Lock) =====
 try:
     os.system('termux-wake-lock > /dev/null 2>&1')
 except Exception:
     pass
 
-# ===== =====
 def send_notification(title, content):
     try:
         os.system(f'termux-notification --title "{title}" --content "{content}" --sound')
     except Exception:
         pass
 
-# ===== =====
 CYAN = "\033[96m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
@@ -50,7 +46,6 @@ RESET = "\033[0m"
 BLUE = "\033[94m"
 BOX = "\033[95m"
 
-# ===== بنر ASCII Art =====
 print(f"""{CYAN}{BOLD}
   ██████╗ ███╗   ██╗██╗      ██████╗  ██████╗██╗  ██╗
  ██╔═══██╗████╗  ██║██║     ██╔═══██╗██╔════╝██║ ██╔╝
@@ -207,7 +202,6 @@ headers = {
   'Cookie': f"new_bbs_serviceToken={new_bbs_serviceToken};versionCode={versionCode};versionName={versionName};deviceId={deviceId};"
 }
 
-# =====  =====
 try:
     info_res = requests.get(U_info, headers=headers).json()
     info = info_res.get('data', {})
@@ -225,79 +219,58 @@ try:
 except Exception as e:
     print(f"{RED}[✗] Failed to fetch account info: {e}{RESET}")
 
-
 def state_request():
-    print(
-        f"{GREEN}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
-        f"{GREEN}{BOLD}║{RESET}             {WHITE}{BOLD}ACCOUNT STATE{RESET}            {GREEN}{BOLD}║{RESET}\n"
-        f"{GREEN}{BOLD}╚══════════════════════════════════════╝{RESET}"
-    )
-
     try:
         state = requests.get(U_state, headers=headers).json().get("data", {})
         is_ = state.get("is_pass")
-        button_ = state.get("button_state")
         deadline_ = state.get("deadline_format", "")
-
         if is_ == 1:
             send_notification("Onlock Success", f"Unlock access granted till {deadline_}")
             exit(f"{GREEN}✔ Unlock access granted till {deadline_} (Beijing time){RESET}\n")
-
-        msg = {
-            1: f"{YELLOW}➤ Apply for bootloader unlocking{RESET}\n",
-            2: f"{RED}✖ Account Error, try again after {deadline_} (mm/dd){RESET}\n",
-            3: f"{RED}✖ Account must be registered over 30 days{RESET}\n"
-        }
-
-        print(msg.get(button_, ""))
-
-        if button_ in [2, 3]:
-            exit()
-
-    except Exception as e:
-        exit(f"{RED}state: {e}{RESET}")
-
+    except Exception:
+        pass
 
 state_request()
 
 def apply_request():
-    print("\n[APPLY]:")
+    print(f"\n{BLUE}[•] Sending unlock request...{RESET}")
     try:
         apply = requests.post(U_apply, data=json.dumps({"is_retry": True}), headers=headers)
-        print(f"Server response time: {apply.headers.get('Date', 'N/A')}")
-        
         res_json = apply.json()
         if res_json.get("code") != 0:
-            send_notification("Onlock Failed", f"Error code: {res_json.get('code')}")
-            exit(res_json)
+            print(f"{RED}[✗] Server error code: {res_json.get('code')}{RESET}")
+            return 0
             
         data_ = res_json.get("data", {}) or {}
         apply_ = data_.get("apply_result", 0)
         deadline_ = data_.get("deadline_format", "")
         
         messages = {
-            1: "Application Successful",
-            4: f"\nAccount Error Please try again after {deadline_} (mm/dd)\n",
-            3: f"\nApplication quota limit reached, please try again after {deadline_.split()[0]} (mm/dd) {deadline_.split()[1]} (GMT+8)\n",
-            5: "\nApplication failed. Please try again later\n",
-            6: "\nPlease try again in a minute\n",
-            7: "\nPlease try again later\n"
+            1: "Application Successful!",
+            4: f"Account Error. Try again after {deadline_}",
+            3: f"Quota limit reached. Try again tomorrow at 00:00 CST",
+            5: "Application failed. Try again later",
+            6: "Please try again in a minute",
+            7: "Please try again later"
         }
-        print(messages.get(apply_, ""))
+        
+        msg = messages.get(apply_, f"Result code: {apply_}")
+        print(f"{YELLOW}[i] Response: {msg}{RESET}")
         
         if apply_ == 1:
             send_notification("Onlock Success", "Bootloader unlock application successful!")
             state_request()
-        elif apply_ in [4, 5, 6, 7]:
-            send_notification("Onlock Failed", f"Application result code: {apply_}")
-            exit()
-        elif apply_ == 3:
-            send_notification("Onlock Quota Reached", "Application quota limit reached.")
             return 1
+        elif apply_ == 3:
+            send_notification("Onlock Quota", "Quota limit reached. Waiting for tomorrow.")
+            return 3
+        elif apply_ in [4, 5, 6, 7]:
+            send_notification("Onlock Notice", msg)
+            return 0
     except Exception as e:
-        send_notification("Onlock Error", str(e))
-        exit(f"apply: {e}")
-
+        print(f"{RED}[✗] Request exception: {e}{RESET}")
+        return 0
+    return 0
 
 def get_ntp_time(servers=["pool.ntp.org", "time.google.com", "time.windows.com"]):
     client = ntplib.NTPClient()
@@ -311,16 +284,18 @@ def get_ntp_time(servers=["pool.ntp.org", "time.google.com", "time.windows.com"]
 
 def get_beijing_time():
     utc_time = get_ntp_time()
-    beijing_time = utc_time.astimezone(timezone(timedelta(hours=8)))
-    return beijing_time
+    return utc_time.astimezone(timezone(timedelta(hours=8)))
 
 def precise_sleep(target_time, precision=0.0005):
     while True:
         current_beijing = get_beijing_time()
         diff = (target_time - current_beijing).total_seconds()
         
- 
-        sys.stdout.write(f"\r{YELLOW}[⏳] Time remaining to target: {diff:.3f} seconds    {RESET}")
+        hours = int(diff // 3600)
+        minutes = int((diff % 3600) // 60)
+        seconds = int(diff % 60)
+        
+        sys.stdout.write(f"\r{YELLOW}[⏳] Next try in: {hours:02d}:{minutes:02d}:{seconds:02d} (Beijing Time)    {RESET}")
         sys.stdout.flush()
         
         if diff <= 0:
@@ -347,54 +322,48 @@ def measure_latency(url, samples=5):
     trimmed = latencies[trim:-trim] if trim else latencies
     return sum(trimmed)/len(trimmed)
 
-def schedule_daily_task():
+def main_loop():
+    # ۱. یکبار اجرای اولیه پس از ورود
+    print(f"\n{BLUE}[•] Executing initial request...{RESET}")
+    res = apply_request()
+    if res == 1:
+        return
 
-    print(f"\n{BLUE}[•] Executing initial request right after login...{RESET}")
-    init_result = apply_request()
-    if init_result == 1:
-        return 1
-
-
+    # ۲. رفتن به حالت انتظار هوشمند تا ساعت ۰۰:۰۰ فردا به وقت پکن
     while True:
         now = get_beijing_time()
-
         target = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=999000)
         
-
         today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=999000)
         if now < today_midnight:
             target = today_midnight
 
-        print(f"\n{CYAN}[•] Next Target Beijing Time: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
-        
-
+        # صبر کردن تا ۱ ثانیه مانده به ساعت ۰۰:۰۰
         while True:
             current_time = get_beijing_time()
             time_to_target = (target - current_time).total_seconds()
             
-  
-            sys.stdout.write(f"\r{YELLOW}[⏳] Waiting for target... Time left: {time_to_target:.1f}s    {RESET}")
+            hours = int(time_to_target // 3600)
+            minutes = int((time_to_target % 3600) // 60)
+            seconds = int(time_to_target % 60)
+            
+            sys.stdout.write(f"\r{YELLOW}[⏳] Waiting for 00:00 CST... Time left: {hours:02d}:{minutes:02d}:{seconds:02d}    {RESET}")
             sys.stdout.flush()
 
             if time_to_target <= 1.0:
-                print(f"\n{YELLOW}[•] Exactly 1s remaining. Measuring real-time network latency...{RESET}")
+                print(f"\n{YELLOW}[•] Measuring real-time network latency...{RESET}")
                 latency = measure_latency(U_apply)
-                print(f"{GREEN}[✓] Latency Offset deducted: {latency:.2f} ms{RESET}")
                 break
                 
-            time.sleep(0.2)
+            time.sleep(0.5)
 
         execution_time = target - timedelta(milliseconds=latency)
-
-        print(f"{BLUE}[•] Final precise trigger time: {execution_time.strftime('%H:%M:%S.%f')}{RESET}")
         precise_sleep(execution_time)
 
+        # ارسال درخواست دقیق در زمان تعیین شده
         result = apply_request()
         if result == 1:
-            return 1
+            break
 
-
-while True:
-    result = schedule_daily_task()
-    if result != 1:
-        break
+if __name__ == "__main__":
+    main_loop()
