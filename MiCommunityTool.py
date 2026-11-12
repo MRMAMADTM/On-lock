@@ -6,6 +6,12 @@ versionName = '5.4.18'
 import os
 import importlib
 import sys
+import base64
+import hashlib
+import json
+import time
+from urllib.parse import urlparse, parse_qs, quote
+from datetime import datetime, timedelta, timezone
 
 while True:
     for lib in ['requests', 'ntplib']:
@@ -18,16 +24,9 @@ while True:
         break
 
 import requests
-import json
-import hashlib
-import urllib.parse
-import time
-import base64
 import ntplib
-from datetime import datetime, timedelta, timezone
-from urllib.parse import parse_qs, urlparse, quote
 
-version = "2.0.0-onlock"
+version = "2.1.0-onlock"
 
 # ===== COLORS =====
 CYAN = "\033[96m"
@@ -47,115 +46,105 @@ print(
 )
 
 # ===== CONFIG =====
-User = "Mozilla/5.0 (Linux; Android 13; Mi 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-base_url = "https://account.xiaomi.com"
+BASE_URL = "https://account.xiaomi.com"
+SID = "18n_bbs_global"
+USER_AGENT = "okhttp/4.12.0"
 api = "https://sgp-api.buy.mi.com/bbs/api/global/"
 deviceId = hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
 
-def parse(r):
-    try:
-        return r.json()
-    except Exception:
-        return {"code": -1, "msg": str(r.text)[:200]}
+def parse_response(response):
+    text = response.text
+    if text.startswith("&&&START&&&"):
+        text = text[11:]
+    return json.loads(text)
 
 def login():
-    global cookies, new_bbs_serviceToken, headers
+    global headers
 
     print(f"{YELLOW}[*] Login required{RESET}")
-    user = input("Xiaomi ID / Email / Phone: ").strip()
-    pwd = input("Password: ").strip()
+    headers_login = {"User-Agent": USER_AGENT}
 
-    if not user or not pwd:
-        exit(f"{RED}Empty credentials{RESET}")
+    while True:
+        cookies = {}
+        user = input("Xiaomi ID / Email / Phone: ").strip()
+        pwd = input("Password: ").strip()
 
-    cookies = {}
-    headers = {
-        'User-Agent': User,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-    }
+        if not user or not pwd:
+            print(f"{RED}Empty credentials{RESET}")
+            continue
 
-    # Step 1: serviceLogin
-    data = {
-        'sid': 'bbs_sgp',
-        '_json': 'true',
-        'user': user,
-        'hash': hashlib.md5(pwd.encode()).hexdigest().upper(),
-    }
+        hashed = hashlib.md5(pwd.encode()).hexdigest().upper()
 
-    r = requests.post(f"{base_url}/pass/serviceLoginAuth2", data=data, headers=headers, cookies=cookies, allow_redirects=False)
-    res = parse(r)
+        try:
+            # Step 1: serviceLogin
+            r = requests.get(
+                f"{BASE_URL}/pass/serviceLogin",
+                params={"sid": SID, "_json": True},
+                headers=headers_login,
+                cookies=cookies
+            )
+            cookies.update(r.cookies.get_dict())
+            data0 = parse_response(r)
 
-    if res.get("code") == 70016:
-        exit(f"{RED}invalid user or pwd{RESET}")
+            # Step 2: serviceLoginAuth2
+            qs_data = {k: v[0] for k, v in parse_qs(urlparse(data0["location"]).query).items()}
+            qs_data.update({"user": user, "hash": hashed})
 
-    if 'notificationUrl' in res:
-        url = res['notificationUrl']
-        if any(x in url for x in ['callback', 'SetEmail', 'BindAppealOrSafePhone']):
-            exit(url)
+            r = requests.post(
+                f"{BASE_URL}/pass/serviceLoginAuth2",
+                data=qs_data,
+                headers=headers_login,
+                cookies=cookies
+            )
+            cookies.update(r.cookies.get_dict())
+            res = parse_response(r)
 
-        cookies.update({"NativeUserAgent": base64.b64encode(User.encode()).decode()})
-        params = parse_qs(urlparse(url).query)
-        cookies.update(requests.get(f"{base_url}/identity/list", params=params, headers=headers, cookies=cookies).cookies.get_dict())
+            if res.get("code") == 70016:
+                print(f"{RED}invalid user or pwd{RESET}\n")
+                continue
 
-        email = parse(requests.get(f"{base_url}/identity/auth/verifyEmail", params={'_json': True}, cookies=cookies, headers=headers)).get('maskedEmail', 'unknown')
-        quota = parse(requests.post(f"{base_url}/identity/pass/sms/userQuota", data={'addressType': 'EM', 'contentType': 160040}, cookies=cookies, headers=headers)).get('info', '?')
-        print(f"Account Authentication\nemail: {email}, Remaining attempts: {quota}")
-        input("\nPress Enter to send the verification code")
+            if "notificationUrl" in res:
+                print(f"{RED}2FA / verification required. Disable it or complete in browser.{RESET}")
+                print(res["notificationUrl"])
+                continue
 
-        code_res = parse(requests.post(f"{base_url}/identity/auth/sendEmailTicket", cookies=cookies, headers=headers))
+            # Step 3: clientSign + location
+            nonce = res["nonce"]
+            ssecurity = res["ssecurity"]
+            client_sign = base64.b64encode(
+                hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()
+            ).decode()
 
-        if code_res.get("code") == 0:
-            print(f"\nVerification code sent to your {email}")
-        elif code_res.get("code") == 70022:
-            exit("Sent too many codes. Try again tomorrow.")
-        else:
-            exit(code_res)
+            loc = res["location"] + f"&clientSign={quote(client_sign)}"
+            final = requests.get(loc, headers=headers_login, cookies=cookies)
+            final_cookies = final.cookies.get_dict()
 
-        while True:
-            ticket = input("Enter code: ").strip()
-            v_res = parse(requests.post(f"{base_url}/identity/auth/verifyEmail", data={'ticket': ticket, 'trust': True}, cookies=cookies, headers=headers))
-            if v_res.get("code") == 70014:
-                print("Verification code error")
-            elif v_res.get("code") == 0:
-                cookies.update(requests.get(v_res['location'], headers=headers, cookies=cookies).history[1].cookies.get_dict())
-                cookies.pop("pass_ua", None)
-                break
-            else:
-                exit(v_res)
+            token = final_cookies.get("new_bbs_serviceToken") or final_cookies.get("serviceToken")
+            if not token:
+                # try all cookies
+                for k, v in final_cookies.items():
+                    if "token" in k.lower() or "service" in k.lower():
+                        token = v
+                        break
 
-        r = requests.get(res.get('location', url), headers=headers, cookies=cookies, allow_redirects=True)
-        cookies.update(r.cookies.get_dict())
+            if not token:
+                print(f"{RED}Failed to obtain serviceToken. Response cookies: {list(final_cookies.keys())}{RESET}\n")
+                continue
 
-    # Extract serviceToken
-    new_bbs_serviceToken = cookies.get('serviceToken') or cookies.get('new_bbs_serviceToken')
-    if not new_bbs_serviceToken:
-        # try from response
-        if 'location' in res:
-            loc = res['location']
-            qs = parse_qs(urlparse(loc).query)
-            new_bbs_serviceToken = qs.get('serviceToken', [None])[0] or cookies.get('serviceToken')
+            headers = {
+                "User-Agent": USER_AGENT,
+                "Accept-Encoding": "gzip",
+                "Content-Type": "application/json",
+                "content-type": "application/json; charset=utf-8",
+                "Cookie": f"new_bbs_serviceToken={token};versionCode={versionCode};versionName={versionName};deviceId={deviceId};"
+            }
 
-    if not new_bbs_serviceToken:
-        # fallback: try common cookie names
-        for k in list(cookies.keys()):
-            if 'token' in k.lower() or 'service' in k.lower():
-                new_bbs_serviceToken = cookies[k]
-                break
+            print(f"{GREEN}[+] Login success{RESET}")
+            return True
 
-    if not new_bbs_serviceToken:
-        exit(f"{RED}Failed to obtain serviceToken. Check credentials / 2FA.{RESET}")
-
-    headers = {
-        'User-Agent': User,
-        'Accept-Encoding': "gzip",
-        'Content-Type': "application/json",
-        'content-type': "application/json; charset=utf-8",
-        'Cookie': f"new_bbs_serviceToken={new_bbs_serviceToken};versionCode={versionCode};versionName={versionName};deviceId={deviceId};"
-    }
-
-    print(f"{GREEN}[+] Login success{RESET}")
-    return True
+        except Exception as e:
+            print(f"{RED}Login error: {e}{RESET}\n")
+            continue
 
 # ===== ENDPOINTS =====
 U_apply = api + "apply/bl-auth"
@@ -166,7 +155,7 @@ login()
 
 # ===== INFO BOX =====
 try:
-    info = requests.get(U_info, headers=headers).json()['data']
+    info = requests.get(U_info, headers=headers).json()["data"]
 except Exception as e:
     exit(f"{RED}Failed to fetch account info: {e}{RESET}")
 
@@ -275,7 +264,7 @@ def measure_latency(url, samples=5):
     for _ in range(samples):
         try:
             start = time.perf_counter()
-            requests.post(url, headers=headers, data='{}', timeout=2)
+            requests.post(url, headers=headers, data="{}", timeout=2)
             latencies.append((time.perf_counter() - start) * 1000)
         except Exception:
             continue
