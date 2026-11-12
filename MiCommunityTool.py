@@ -10,6 +10,7 @@ import base64
 import hashlib
 import json
 import time
+import getpass
 from urllib.parse import urlparse, parse_qs, quote
 from datetime import datetime, timedelta, timezone
 
@@ -26,7 +27,7 @@ while True:
 import requests
 import ntplib
 
-version = "2.1.1-onlock"
+version = "2.2.0-onlock"
 
 # ===== COLORS =====
 CYAN = "\033[96m"
@@ -59,8 +60,89 @@ def parse_response(response):
     try:
         return json.loads(text)
     except Exception:
-        print(f"{YELLOW}[DEBUG] Raw response: {text[:300]}{RESET}")
+        print(f"{YELLOW}[DEBUG] Raw: {text[:300]}{RESET}")
         raise
+
+def handle_2fa(notification_url, cookies, headers_login):
+    """Handle identity verification (email / sms) inside Termux."""
+    print(f"{YELLOW}[*] 2FA required – handling in Termux...{RESET}")
+
+    # open identity list / auth start
+    r = requests.get(notification_url, headers=headers_login, cookies=cookies, allow_redirects=True, timeout=20)
+    cookies.update(r.cookies.get_dict())
+
+    # try to get masked email / phone options
+    try:
+        # common endpoint after notification
+        r2 = requests.get(
+            f"{BASE_URL}/identity/auth/verifyEmail",
+            params={"_json": "true"},
+            headers=headers_login,
+            cookies=cookies,
+            timeout=15
+        )
+        data = parse_response(r2) if r2.text.strip().startswith("&&&") or r2.headers.get("content-type","").startswith("application/json") else {}
+    except Exception:
+        data = {}
+
+    masked = data.get("maskedEmail") or data.get("maskedAddress") or "?"
+    print(f"{CYAN}Masked contact: {masked}{RESET}")
+
+    # ask user which method
+    print(f"{YELLOW}1) Send code to email/phone{RESET}")
+    print(f"{YELLOW}2) I already have the code{RESET}")
+    choice = input("Choice [1/2]: ").strip() or "1"
+
+    if choice == "1":
+        # try send email ticket
+        try:
+            send = requests.post(
+                f"{BASE_URL}/identity/auth/sendEmailTicket",
+                headers=headers_login,
+                cookies=cookies,
+                timeout=15
+            )
+            sres = parse_response(send)
+            if sres.get("code") == 0:
+                print(f"{GREEN}Code sent to {masked}{RESET}")
+            elif sres.get("code") == 70022:
+                print(f"{RED}Too many codes sent. Try tomorrow or use another method.{RESET}")
+            else:
+                print(f"{YELLOW}Send response: {sres}{RESET}")
+        except Exception as e:
+            print(f"{YELLOW}Send error (may still work): {e}{RESET}")
+
+    while True:
+        ticket = input("Enter verification code: ").strip()
+        if not ticket:
+            continue
+        try:
+            v = requests.post(
+                f"{BASE_URL}/identity/auth/verifyEmail",
+                data={"ticket": ticket, "trust": "true"},
+                headers=headers_login,
+                cookies=cookies,
+                timeout=15
+            )
+            vres = parse_response(v)
+            if vres.get("code") == 70014:
+                print(f"{RED}Wrong code, try again{RESET}")
+                continue
+            if vres.get("code") == 0:
+                # follow location if any
+                if "location" in vres:
+                    r3 = requests.get(vres["location"], headers=headers_login, cookies=cookies, allow_redirects=True, timeout=15)
+                    cookies.update(r3.cookies.get_dict())
+                    if r3.history:
+                        for h in r3.history:
+                            cookies.update(h.cookies.get_dict())
+                cookies.update(v.cookies.get_dict())
+                print(f"{GREEN}[+] 2FA passed{RESET}")
+                return cookies
+            print(f"{YELLOW}Verify response: {vres}{RESET}")
+        except Exception as e:
+            print(f"{RED}Verify error: {e}{RESET}")
+    return cookies
 
 def login():
     global headers
@@ -74,7 +156,7 @@ def login():
     while True:
         cookies = {}
         user = input("Xiaomi ID / Email / Phone: ").strip()
-        pwd = input("Password: ").strip()
+        pwd = getpass.getpass("Password: ")
 
         if not user or not pwd:
             print(f"{RED}Empty credentials{RESET}")
@@ -83,7 +165,7 @@ def login():
         hashed = hashlib.md5(pwd.encode()).hexdigest().upper()
 
         try:
-            # Step 1: serviceLogin
+            # Step 1
             r = requests.get(
                 f"{BASE_URL}/pass/serviceLogin",
                 params={"sid": SID, "_json": "true"},
@@ -98,13 +180,9 @@ def login():
                 print(f"{RED}No location in serviceLogin: {data0}{RESET}\n")
                 continue
 
-            # Step 2: serviceLoginAuth2
+            # Step 2
             qs_data = {k: v[0] for k, v in parse_qs(urlparse(data0["location"]).query).items()}
-            qs_data.update({
-                "user": user,
-                "hash": hashed,
-                "_json": "true",
-            })
+            qs_data.update({"user": user, "hash": hashed, "_json": "true"})
 
             r = requests.post(
                 f"{BASE_URL}/pass/serviceLoginAuth2",
@@ -116,26 +194,27 @@ def login():
             cookies.update(r.cookies.get_dict())
             res = parse_response(r)
 
-            code = res.get("code")
-            if code == 70016:
-                print(f"{RED}invalid user or pwd (code 70016){RESET}\n")
-                continue
-            if code not in (0, None) and "location" not in res and "ssecurity" not in res:
-                print(f"{RED}Auth failed: code={code} desc={res.get('description')} full={res}{RESET}\n")
+            if res.get("code") == 70016:
+                print(f"{RED}invalid user or pwd{RESET}\n")
                 continue
 
+            # 2FA
             if "notificationUrl" in res:
-                print(f"{RED}2FA / verification required:{RESET}")
-                print(res["notificationUrl"])
-                print(f"{YELLOW}Complete it in browser then try again (or disable 2FA).{RESET}\n")
-                continue
+                cookies = handle_2fa(res["notificationUrl"], cookies, headers_login)
+                # after 2FA we may need to re-do auth or follow again
+                # try to continue with existing res if possible, else re-login once
+                if "ssecurity" not in res:
+                    print(f"{YELLOW}Re-authenticating after 2FA...{RESET}")
+                    continue
 
             if "ssecurity" not in res or "nonce" not in res or "location" not in res:
-                print(f"{RED}Missing fields in auth response: {list(res.keys())}{RESET}")
-                print(f"{YELLOW}Full: {res}{RESET}\n")
+                print(f"{RED}Missing fields: {list(res.keys())}{RESET}")
+                if res.get("description"):
+                    print(res["description"])
+                print()
                 continue
 
-            # Step 3: clientSign + location
+            # Step 3 clientSign
             nonce = res["nonce"]
             ssecurity = res["ssecurity"]
             client_sign = base64.b64encode(
@@ -144,19 +223,20 @@ def login():
 
             loc = res["location"]
             if "clientSign=" not in loc:
-                loc = loc + ("&" if "?" in loc else "?") + f"clientSign={quote(client_sign)}"
+                loc += ("&" if "?" in loc else "?") + f"clientSign={quote(client_sign)}"
 
             final = requests.get(loc, headers=headers_login, cookies=cookies, timeout=15, allow_redirects=True)
             final_cookies = final.cookies.get_dict()
-            # also merge previous
             final_cookies.update(cookies)
+            if final.history:
+                for h in final.history:
+                    final_cookies.update(h.cookies.get_dict())
 
             token = (
                 final_cookies.get("new_bbs_serviceToken")
                 or final_cookies.get("serviceToken")
                 or final_cookies.get("passToken")
             )
-
             if not token:
                 for k, v in final_cookies.items():
                     if "token" in k.lower():
@@ -164,9 +244,7 @@ def login():
                         break
 
             if not token:
-                print(f"{RED}Failed to obtain serviceToken.{RESET}")
-                print(f"{YELLOW}Cookies received: {list(final_cookies.keys())}{RESET}")
-                print(f"{YELLOW}Final URL: {final.url}{RESET}\n")
+                print(f"{RED}Failed to obtain serviceToken. Cookies: {list(final_cookies.keys())}{RESET}\n")
                 continue
 
             headers = {
@@ -196,7 +274,7 @@ try:
     info_resp = requests.get(U_info, headers=headers, timeout=15)
     info = info_resp.json()["data"]
 except Exception as e:
-    exit(f"{RED}Failed to fetch account info: {e}\nResponse: {getattr(info_resp, 'text', '')[:200]}{RESET}")
+    exit(f"{RED}Failed to fetch account info: {e}\n{getattr(info_resp,'text','')[:200]}{RESET}")
 
 print(
     f"\n{CYAN}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
@@ -216,7 +294,6 @@ def state_request():
         f"{GREEN}{BOLD}║{RESET}             {WHITE}{BOLD}ACCOUNT STATE{RESET}            {GREEN}{BOLD}║{RESET}\n"
         f"{GREEN}{BOLD}╚══════════════════════════════════════╝{RESET}"
     )
-
     try:
         state = requests.get(U_state, headers=headers, timeout=15).json().get("data", {})
         is_ = state.get("is_pass")
@@ -231,12 +308,9 @@ def state_request():
             2: f"{RED}✖ Account Error, try again after {deadline_} (mm/dd){RESET}\n",
             3: f"{RED}✖ Account must be registered over 30 days{RESET}\n"
         }
-
         print(msg.get(button_, f"{YELLOW}Unknown state: {button_}{RESET}\n"))
-
         if button_ in [2, 3]:
             exit()
-
     except Exception as e:
         exit(f"{RED}state: {e}{RESET}")
 
@@ -257,7 +331,7 @@ def apply_request():
         messages = {
             1: f"{GREEN}Application Successful{RESET}",
             4: f"\n{RED}Account Error Please try again after {deadline_} (mm/dd){RESET}\n",
-            3: f"\n{YELLOW}Application quota limit reached, please try again after {deadline_.split()[0] if deadline_ else '?'} (mm/dd) {deadline_.split()[1] if len(deadline_.split()) > 1 else ''} (GMT+8){RESET}\n",
+            3: f"\n{YELLOW}Application quota limit reached, please try again after {deadline_.split()[0] if deadline_ else '?'} (mm/dd) {deadline_.split()[1] if len(deadline_.split())>1 else ''} (GMT+8){RESET}\n",
             5: f"\n{RED}Application failed. Please try again later{RESET}\n",
             6: f"\n{YELLOW}Please try again in a minute{RESET}\n",
             7: f"\n{YELLOW}Please try again later{RESET}\n"
@@ -285,8 +359,7 @@ def get_ntp_time(servers=["pool.ntp.org", "time.google.com", "time.windows.com"]
 
 
 def get_beijing_time():
-    utc_time = get_ntp_time()
-    return utc_time.astimezone(timezone(timedelta(hours=8)))
+    return get_ntp_time().astimezone(timezone(timedelta(hours=8)))
 
 
 def precise_sleep(target_time, precision=0.01):
@@ -294,8 +367,7 @@ def precise_sleep(target_time, precision=0.01):
         diff = (target_time - datetime.now(target_time.tzinfo)).total_seconds()
         if diff <= 0:
             return
-        sleep_time = max(min(diff - precision / 2, 1), precision)
-        time.sleep(sleep_time)
+        time.sleep(max(min(diff - precision/2, 1), precision))
 
 
 def measure_latency(url, samples=5):
@@ -307,39 +379,31 @@ def measure_latency(url, samples=5):
             latencies.append((time.perf_counter() - start) * 1000)
         except Exception:
             continue
-
     if len(latencies) < 3:
         return 200
-
     latencies.sort()
     trim = int(len(latencies) * 0.2)
     trimmed = latencies[trim:-trim] if trim else latencies
-    return sum(trimmed) / len(trimmed) * 1.3
+    return sum(trimmed)/len(trimmed) * 1.3
 
 
 def schedule_daily_task():
     beijing_tz = timezone(timedelta(hours=8))
-
     while True:
         now = get_beijing_time()
         target = now.replace(hour=23, minute=57, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
-
         print(f"\nNext execution at: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST")
         while datetime.now(beijing_tz) < target:
-            time_left = (target - datetime.now(beijing_tz)).total_seconds()
-            if time_left > 300:
+            if (target - datetime.now(beijing_tz)).total_seconds() > 300:
                 time.sleep(60)
             else:
                 precise_sleep(target)
-
         latency = measure_latency(U_apply)
         execution_time = target + timedelta(minutes=3) - timedelta(milliseconds=latency)
-
         print(f"Adjusted execution time: {execution_time.strftime('%H:%M:%S.%f')}")
         precise_sleep(execution_time)
-
         result = apply_request()
         if result == 1:
             return 1
