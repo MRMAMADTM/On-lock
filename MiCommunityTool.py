@@ -26,7 +26,7 @@ while True:
 import requests
 import ntplib
 
-version = "2.1.0-onlock"
+version = "2.1.1-onlock"
 
 # ===== COLORS =====
 CYAN = "\033[96m"
@@ -53,16 +53,23 @@ api = "https://sgp-api.buy.mi.com/bbs/api/global/"
 deviceId = hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
 
 def parse_response(response):
-    text = response.text
+    text = response.text.strip()
     if text.startswith("&&&START&&&"):
         text = text[11:]
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except Exception:
+        print(f"{YELLOW}[DEBUG] Raw response: {text[:300]}{RESET}")
+        raise
 
 def login():
     global headers
 
     print(f"{YELLOW}[*] Login required{RESET}")
-    headers_login = {"User-Agent": USER_AGENT}
+    headers_login = {
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
 
     while True:
         cookies = {}
@@ -79,33 +86,53 @@ def login():
             # Step 1: serviceLogin
             r = requests.get(
                 f"{BASE_URL}/pass/serviceLogin",
-                params={"sid": SID, "_json": True},
+                params={"sid": SID, "_json": "true"},
                 headers=headers_login,
-                cookies=cookies
+                cookies=cookies,
+                timeout=15
             )
             cookies.update(r.cookies.get_dict())
             data0 = parse_response(r)
 
+            if "location" not in data0:
+                print(f"{RED}No location in serviceLogin: {data0}{RESET}\n")
+                continue
+
             # Step 2: serviceLoginAuth2
             qs_data = {k: v[0] for k, v in parse_qs(urlparse(data0["location"]).query).items()}
-            qs_data.update({"user": user, "hash": hashed})
+            qs_data.update({
+                "user": user,
+                "hash": hashed,
+                "_json": "true",
+            })
 
             r = requests.post(
                 f"{BASE_URL}/pass/serviceLoginAuth2",
                 data=qs_data,
                 headers=headers_login,
-                cookies=cookies
+                cookies=cookies,
+                timeout=15
             )
             cookies.update(r.cookies.get_dict())
             res = parse_response(r)
 
-            if res.get("code") == 70016:
-                print(f"{RED}invalid user or pwd{RESET}\n")
+            code = res.get("code")
+            if code == 70016:
+                print(f"{RED}invalid user or pwd (code 70016){RESET}\n")
+                continue
+            if code not in (0, None) and "location" not in res and "ssecurity" not in res:
+                print(f"{RED}Auth failed: code={code} desc={res.get('description')} full={res}{RESET}\n")
                 continue
 
             if "notificationUrl" in res:
-                print(f"{RED}2FA / verification required. Disable it or complete in browser.{RESET}")
+                print(f"{RED}2FA / verification required:{RESET}")
                 print(res["notificationUrl"])
+                print(f"{YELLOW}Complete it in browser then try again (or disable 2FA).{RESET}\n")
+                continue
+
+            if "ssecurity" not in res or "nonce" not in res or "location" not in res:
+                print(f"{RED}Missing fields in auth response: {list(res.keys())}{RESET}")
+                print(f"{YELLOW}Full: {res}{RESET}\n")
                 continue
 
             # Step 3: clientSign + location
@@ -115,20 +142,31 @@ def login():
                 hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()
             ).decode()
 
-            loc = res["location"] + f"&clientSign={quote(client_sign)}"
-            final = requests.get(loc, headers=headers_login, cookies=cookies)
-            final_cookies = final.cookies.get_dict()
+            loc = res["location"]
+            if "clientSign=" not in loc:
+                loc = loc + ("&" if "?" in loc else "?") + f"clientSign={quote(client_sign)}"
 
-            token = final_cookies.get("new_bbs_serviceToken") or final_cookies.get("serviceToken")
+            final = requests.get(loc, headers=headers_login, cookies=cookies, timeout=15, allow_redirects=True)
+            final_cookies = final.cookies.get_dict()
+            # also merge previous
+            final_cookies.update(cookies)
+
+            token = (
+                final_cookies.get("new_bbs_serviceToken")
+                or final_cookies.get("serviceToken")
+                or final_cookies.get("passToken")
+            )
+
             if not token:
-                # try all cookies
                 for k, v in final_cookies.items():
-                    if "token" in k.lower() or "service" in k.lower():
+                    if "token" in k.lower():
                         token = v
                         break
 
             if not token:
-                print(f"{RED}Failed to obtain serviceToken. Response cookies: {list(final_cookies.keys())}{RESET}\n")
+                print(f"{RED}Failed to obtain serviceToken.{RESET}")
+                print(f"{YELLOW}Cookies received: {list(final_cookies.keys())}{RESET}")
+                print(f"{YELLOW}Final URL: {final.url}{RESET}\n")
                 continue
 
             headers = {
@@ -143,7 +181,7 @@ def login():
             return True
 
         except Exception as e:
-            print(f"{RED}Login error: {e}{RESET}\n")
+            print(f"{RED}Login error: {type(e).__name__}: {e}{RESET}\n")
             continue
 
 # ===== ENDPOINTS =====
@@ -155,9 +193,10 @@ login()
 
 # ===== INFO BOX =====
 try:
-    info = requests.get(U_info, headers=headers).json()["data"]
+    info_resp = requests.get(U_info, headers=headers, timeout=15)
+    info = info_resp.json()["data"]
 except Exception as e:
-    exit(f"{RED}Failed to fetch account info: {e}{RESET}")
+    exit(f"{RED}Failed to fetch account info: {e}\nResponse: {getattr(info_resp, 'text', '')[:200]}{RESET}")
 
 print(
     f"\n{CYAN}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
@@ -179,7 +218,7 @@ def state_request():
     )
 
     try:
-        state = requests.get(U_state, headers=headers).json().get("data", {})
+        state = requests.get(U_state, headers=headers, timeout=15).json().get("data", {})
         is_ = state.get("is_pass")
         button_ = state.get("button_state")
         deadline_ = state.get("deadline_format", "")
@@ -208,7 +247,7 @@ state_request()
 def apply_request():
     print("\n[APPLY]:")
     try:
-        apply = requests.post(U_apply, data=json.dumps({"is_retry": True}), headers=headers)
+        apply = requests.post(U_apply, data=json.dumps({"is_retry": True}), headers=headers, timeout=15)
         print(f"Server response time: {apply.headers.get('Date', 'N/A')}")
         if apply.json().get("code") != 0:
             exit(apply.json())
