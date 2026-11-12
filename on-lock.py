@@ -1,48 +1,32 @@
-#!/usr/python
+#!/usr/bin/python
 
 versionCode = '500418'
 versionName = '5.4.18'
 
 import os
 import importlib
-import getpass
 
 while True:
     for lib in ['requests', 'ntplib']:
         try:
-            import importlib.util
-            if importlib.util.find_spec(lib) is None:
-                raise ModuleNotFoundError
+            importlib.import_module(lib)
         except ModuleNotFoundError:
             os.system(f'pip install {lib}')
             break
     else:
         break
 
-import requests, json, hashlib, urllib.parse, time, sys, base64, ntplib
+import requests, json, hashlib, urllib.parse, time, sys, os, base64, ntplib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse, quote
 
-version = "2.6 Smart Scheduler"
+version = "2.0.0"
 
-try:
-    os.system('termux-wake-lock > /dev/null 2>&1')
-except Exception:
-    pass
+# ===== TELEGRAM INFO =====
+CHANNEL_LINK = "https://t.me/unlock_bootloader_xiaomi"
+DEVELOPER_ID = "@MRMAMADTM"
 
-def send_notification(title, content):
-    try:
-        os.system(f'termux-notification --title "{title}" --content "{content}" --sound')
-    except Exception:
-        pass
-
-def write_log(message):
-    try:
-        with open("on-lock.log", "a", encoding="utf-8") as log_file:
-            log_file.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
-    except Exception:
-        pass
-
+# ===== COLORS =====
 CYAN = "\033[96m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
@@ -50,92 +34,36 @@ RED = "\033[91m"
 WHITE = "\033[97m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
-BLUE = "\033[94m"
-BOX = "\033[95m"
 
-print(f"""{CYAN}{BOLD}
-  ██████╗ ███╗   ██╗██╗      ██████╗  ██████╗██╗  ██╗
- ██╔═══██╗████╗  ██║██║     ██╔═══██╗██╔════╝██║ ██╔╝
- ██║   ██║██╔██╗ ██║██║     ██║   ██║██║     █████╔╝ 
- ██║   ██║██║╚██╗██║██║     ██║   ██║██║     ██╔═██╗ 
- ╚██████╔╝██║ ╚████║███████╗╚██████╔╝╚██████╗██║  ██╗
-  ╚═════╝ ╚═╝  ╚═══╝╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝
-{RESET}""")
+# ===== ASCII ART BANNER (Onlock) =====
+def show_banner():
+    print(
+        f"{CYAN}{BOLD}"
+        " ██████╗ ███╗   ██╗██╗      ██████╗  ██████╗██╗  ██╗\n"
+        "██╔═══██╗████╗  ██║██║     ██╔═══██╗██╔════╝██║ ██╔╝\n"
+        "██║   ██║██╔██╗ ██║██║     ██║   ██║██║     █████╔╝ \n"
+        "██║   ██║██║╚██╗██║██║     ██║   ██║██║     ██╔═██╗ \n"
+        "╚██████╔╝██║ ╚████║███████╗╚██████╔╝╚██████╗██║  ██╗\n"
+        " ╚═════╝ ╚═╝  ╚═══╝╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝\n"
+        f"{RESET}"
+        f"{WHITE}{BOLD}        [V{version}] Xiaomi Bootloader Unlocker{RESET}\n"
+        f"{YELLOW}   Channel: {GREEN}{CHANNEL_LINK}{RESET}\n"
+        f"{YELLOW}   Developer: {GREEN}{DEVELOPER_ID}{RESET}\n"
+        f"{CYAN}{BOLD}───────────────────────────────────────────────{RESET}\n"
+    )
 
-print(
-    f"{CYAN}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
-    f"{CYAN}{BOLD}║{RESET}    {WHITE}{BOLD}[V{version}] Onlock Bootloader{RESET}     {CYAN}{BOLD}║{RESET}\n"
-    f"{CYAN}{BOLD}╠══════════════════════════════════════╣{RESET}\n"
-    f"{CYAN}{BOLD}║         {RESET} {YELLOW}Made By:{RESET} {GREEN}on-lock{RESET}            {CYAN}{BOLD}║{RESET}\n"
-    f"{CYAN}{BOLD}║         {RESET} {YELLOW}Telegram:{RESET} {GREEN}@Mrmamadtm{RESET}       {CYAN}{BOLD}║{RESET}\n"
-    f"{CYAN}{BOLD}╚══════════════════════════════════════╝{RESET}\n"
-)
+show_banner()
 
 User = "okhttp/4.12.0"
 headers = {"User-Agent": User}
 
-CONFIG_FILE = "config.json"
-default_config = {
-    "auto_retry_attempts": 3,
-    "retry_delay_seconds": 2,
-    "preferred_region": "sgp"
-}
-
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(default_config, f, indent=4)
-    return default_config
-
-config = load_config()
-
-ACCOUNTS_FILE = "accounts.json"
-
-def get_account_data():
-    accounts = []
-    if os.path.exists(ACCOUNTS_FILE):
-        try:
-            with open(ACCOUNTS_FILE, "r") as f:
-                accounts = json.load(f)
-        except Exception:
-            pass
-            
-    if accounts:
-        print(f"\n{BLUE}[•] Saved Accounts:{RESET}")
-        for idx, acc in enumerate(accounts):
-            print(f"  {idx + 1}. User ID: {acc.get('userId')} (Region: {acc.get('region')})")
-        print(f"  {len(accounts) + 1}. Add New Account / Login")
-        
-        choice = input(f"{YELLOW}➤ Choose account (1-{len(accounts)+1}): {RESET}").strip()
-        if choice.isdigit():
-            c = int(choice)
-            if 1 <= c <= len(accounts):
-                return accounts[c - 1]
-                
-    new_acc = login()
-    if new_acc not in accounts:
-        accounts.append(new_acc)
-        with open(ACCOUNTS_FILE, "w") as f:
-            json.dump(accounts, f, indent=4)
-    return new_acc
-
-def login():
+def login(account_name):
     base_url = "https://account.xiaomi.com"
     sid = "18n_bbs_global"
 
-    print(
-        f"\n{CYAN}{BOLD}╔══════════════════════════════════════╗{RESET}"
-        f"\n{CYAN}{BOLD}║{RESET}   {WHITE}{BOLD}     Mi Account LOGIN PANEL{RESET}        {CYAN}{BOLD}║{RESET}"
-        f"\n{CYAN}{BOLD}╚══════════════════════════════════════╝{RESET}"
-    )
-
-    user = input(f"{YELLOW}➤ Enter Mi ID:{RESET} ")
-    pwd = getpass.getpass(f"{YELLOW}➤ Enter Mi Pwd :{RESET} ")
+    print(f"\n{CYAN}{BOLD}[+] Mi Account LOGIN PANEL ({account_name}){RESET}")
+    user = input(f"{YELLOW}➤ Enter Mi ID (Email/Phone):{RESET} ")
+    pwd = input(f"{YELLOW}➤ Enter Mi Password :{RESET} ")
 
     hash_pwd = hashlib.md5(pwd.encode()).hexdigest().upper()
     cookies = {}
@@ -155,7 +83,7 @@ def login():
     cookies.update(r.cookies.get_dict())
     res = parse(r)
 
-    if res["code"] == 70016: exit("invalid user or pwd")
+    if res["code"] == 70016: exit(f"{RED}❌ Invalid user or password!{RESET}")
     if 'notificationUrl' in res:
         url = res['notificationUrl']
         if any(x in url for x in ['callback','SetEmail','BindAppealOrSafePhone']): exit(url)
@@ -195,30 +123,68 @@ def login():
     serviceToken = requests.get(res['location'], headers=headers, cookies=cookies).cookies.get_dict()
 
     micdata = {"userId": res['userId'], "new_bbs_serviceToken": serviceToken["new_bbs_serviceToken"], "region": region, "deviceId": deviceId}
+    
+    filename = f"micdata_{account_name}.json"
+    with open(filename, "w") as f: 
+        json.dump(micdata, f)
+    print(f"{GREEN}✅ Account successfully saved to {filename}{RESET}")
     return micdata
 
-micdata = get_account_data()
+# ===== MULTI-ACCOUNT MANAGEMENT =====
+def select_account():
+    while True:
+        saved_files = [f for f in os.listdir('.') if f.startswith('micdata_') and f.endswith('.json')]
+        
+        print(f"\n{YELLOW}=== Account Management =={RESET}")
+        print(f"1. Login with a New Account")
+        if saved_files:
+            print(f"2. Select from Saved Accounts")
+        print(f"3. Exit")
+        
+        choice = input(f"{YELLOW}➤ Choose an option (1-3): {RESET}").strip()
+        
+        if choice == '1':
+            acc_name = input(f"{YELLOW}➤ Enter a unique name for this account (e.g. account1): {RESET}").strip()
+            if not acc_name:
+                acc_name = "default"
+            return login(acc_name)
+            
+        elif choice == '2' and saved_files:
+            print(f"\n{CYAN}Saved Accounts:{RESET}")
+            for idx, file in enumerate(saved_files, 1):
+                acc_label = file.replace('micdata_', '').replace('.json', '')
+                print(f"[{idx}] {acc_label}")
+            
+            sel = input(f"{YELLOW}➤ Select account number: {RESET}").strip()
+            try:
+                sel_idx = int(sel) - 1
+                if 0 <= sel_idx < len(saved_files):
+                    with open(saved_files[sel_idx], 'r') as f:
+                        micdata = json.load(f)
+                        if all(micdata.get(k) for k in ("userId", "new_bbs_serviceToken", "region", "deviceId")):
+                            print(f"{GREEN}✅ Loaded account ID: {micdata['userId']}{RESET}")
+                            return micdata
+            except Exception:
+                print(f"{RED}❌ Invalid selection, try again.{RESET}")
+        elif choice == '3':
+            exit(f"{CYAN}Goodbye! Visit {CHANNEL_LINK}{RESET}")
+        else:
+            print(f"{RED}❌ Invalid choice.{RESET}")
 
+micdata = select_account()
 new_bbs_serviceToken = micdata["new_bbs_serviceToken"]
 deviceId = micdata["deviceId"]
 region = micdata['region']
 
-print(f"\n{BOX}{BOLD}╔══════════════════════════════════════╗{RESET}")
-print(f"{BOX}{BOLD}║{RESET}          {WHITE}{BOLD}REGION SELECTOR{RESET}             {BOX}{BOLD}║{RESET}")
-print(f"{BOX}{BOLD}╠══════════════════════════════════════╣{RESET}")
-print(f"{BOX}{BOLD}║{RESET} Detected Region: {WHITE}{region}{RESET}                  {BOX}{BOLD}║{RESET}")
-print(f"{BOX}{BOLD}╚══════════════════════════════════════╝{RESET}\n")
+print(
+    f"\n{CYAN}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
+    f"{CYAN}{BOLD}║         {RESET} {WHITE}{BOLD}ACCOUNT INFORMATION{RESET}        {CYAN}{BOLD}║{RESET}\n"
+    f"{CYAN}{BOLD}╠══════════════════════════════════════╣{RESET}\n"
+    f"{CYAN}{BOLD}║      {RESET} {YELLOW}Account Region:{RESET} {WHITE}{region}{RESET}            {CYAN}{BOLD}║{RESET}\n"
+    f"{CYAN}{BOLD}╚══════════════════════════════════════╝{RESET}\n"
+)
 
-region_choice = input(f"{YELLOW}➤ Use default region ({region}) or change? (d/c): {RESET}").strip().lower()
-if region_choice == 'c':
-    print("1. Global SGP (sgp-api.buy.mi.com)\n2. Default")
-    r_sel = input("Select region option (1/2): ").strip()
-    api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
-else:
-    api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
-
-api = api_base
-
+api = "https://sgp-api.buy.mi.com/bbs/api/global/"
 U_state = api + "user/bl-switch/state"
 U_apply = api + "apply/bl-auth"
 U_info = api + "user/data"
@@ -232,178 +198,102 @@ headers = {
 }
 
 try:
-    info_res = requests.get(U_info, headers=headers).json()
-    info = info_res.get('data', {})
-    
+    info = requests.get(U_info, headers=headers).json()['data']
     print(
         f"\n{CYAN}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
-        f"{CYAN}{BOLD}║{RESET}            {WHITE}{BOLD}ACCOUNT INFO{RESET}              {CYAN}{BOLD}║{RESET}\n"
+        f"{CYAN}{BOLD}║{RESET}            {WHITE}{BOLD}ACCOUNT STATS{RESET}             {CYAN}{BOLD}║{RESET}\n"
         f"{CYAN}{BOLD}╠══════════════════════════════════════╣{RESET}\n"
-        f"{CYAN}{BOLD}║        {RESET} {YELLOW}Days in Community:{RESET} {WHITE}{info.get('registered_day', 'N/A')}{RESET}        {CYAN}{BOLD}║{RESET}\n"
-        f"{CYAN}{BOLD}║        {RESET} {YELLOW}Level:{RESET} {WHITE}LV{info.get('level_info', {}).get('level', 'N/A')} {info.get('level_info', {}).get('level_title', '')}{RESET}    {CYAN}{BOLD}║{RESET}\n"
-        f"{CYAN}{BOLD}║        {RESET} {YELLOW}Next Level Points:{RESET} {WHITE}{info.get('level_info', {}).get('max_value', 0) - info.get('level_info', {}).get('current_value', 0)}{RESET}      {CYAN}{BOLD}║{RESET}\n"
-        f"{CYAN}{BOLD}║        {RESET} {YELLOW}Points:{RESET} {WHITE}{info.get('level_info', {}).get('current_value', 'N/A')}{RESET}                  {CYAN}{BOLD}║{RESET}\n"
+        f"{CYAN}{BOLD}║        {RESET} {YELLOW}Days in Community:{RESET} {WHITE}{info['registered_day']}{RESET}        {CYAN}{BOLD}║{RESET}\n"
+        f"{CYAN}{BOLD}║        {RESET} {YELLOW}Level:{RESET} {WHITE}LV{info['level_info']['level']} {info['level_info']['level_title']}{RESET}    {CYAN}{BOLD}║{RESET}\n"
+        f"{CYAN}{BOLD}║        {RESET} {YELLOW}Points:{RESET} {WHITE}{info['level_info']['current_value']}{RESET}                  {CYAN}{BOLD}║{RESET}\n"
         f"{CYAN}{BOLD}╚══════════════════════════════════════╝{RESET}\n"
     )
-    write_log(f"Account loaded successfully. ID: {micdata.get('userId')}, Region: {region}")
 except Exception as e:
-    print(f"{RED}[✗] Failed to fetch account info: {e}{RESET}")
+    print(f"{RED}⚠️ Could not load extra account info: {e}{RESET}")
 
 def state_request():
-    """Check if unlock is already approved."""
+    print(
+        f"{GREEN}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
+        f"{GREEN}{BOLD}║{RESET}             {WHITE}{BOLD}ACCOUNT STATE{RESET}            {GREEN}{BOLD}║{RESET}\n"
+        f"{GREEN}{BOLD}╚══════════════════════════════════════╝{RESET}"
+    )
+
     try:
         state = requests.get(U_state, headers=headers).json().get("data", {})
         is_ = state.get("is_pass")
+        button_ = state.get("button_state")
         deadline_ = state.get("deadline_format", "")
+
         if is_ == 1:
-            send_notification("Onlock Success", f"Unlock access granted till {deadline_}")
-            write_log(f"Unlock access granted till {deadline_}")
-            print(f"{GREEN}✔ Unlock access granted till {deadline_} (Beijing time){RESET}\n")
-            return True
-    except Exception:
-        pass
-    return False
+            exit(f"{GREEN}✔ Unlock access granted till {deadline_} (Beijing time){RESET}\n")
+
+        msg = {
+            1: f"{YELLOW}➤ Apply for bootloader unlocking{RESET}\n",
+            2: f"{RED}✖ Account Error, try again after {deadline_} (mm/dd){RESET}\n",
+            3: f"{RED}✖ Account must be registered over 30 days{RESET}\n"
+        }
+
+        print(msg.get(button_, ""))
+
+        if button_ in [2, 3]:
+            exit()
+
+    except Exception as e:
+        exit(f"{RED}state: {e}{RESET}")
+
+state_request()
 
 def apply_request():
-    """Send unlock request and return result code."""
-    print(f"\n{BLUE}[•] Sending unlock request...{RESET}")
-    max_retries = config.get("auto_retry_attempts", 3)
-    retry_delay = config.get("retry_delay_seconds", 2)
-    
-    for attempt in range(1, max_retries + 1):
-        try:
-            apply = requests.post(U_apply, data=json.dumps({"is_retry": True}), headers=headers)
-            res_json = apply.json()
-            if res_json.get("code") != 0:
-                print(f"{RED}[✗] Attempt {attempt}/{max_retries} - Server error code: {res_json.get('code')}{RESET}")
-                if attempt < max_retries:
-                    time.sleep(retry_delay)
-                    continue
-                return 0
-                
-            data_ = res_json.get("data", {}) or {}
-            apply_ = data_.get("apply_result", 0)
-            deadline_ = data_.get("deadline_format", "")
-            
-            messages = {
-                1: "Application Successful!",
-                4: f"Account Error. Try again after {deadline_}",
-                3: f"Quota limit reached. Try again tomorrow at 00:00 CST",
-                5: "Application failed. Try again later",
-                6: "Please try again in a minute",
-                7: "Please try again later"
-            }
-            
-            msg = messages.get(apply_, f"Result code: {apply_}")
-            print(f"{YELLOW}[i] Response: {msg}{RESET}")
-            write_log(f"Apply response: {msg}")
-            
-            if apply_ == 1:
-                send_notification("Onlock Success", "Bootloader unlock application successful!")
-                state_request()
-                return 1
-            elif apply_ in [3, 4]:
-                send_notification("Onlock Notice", "Quota full. Scheduled for next day 00:00 CST.")
-                return 3
-            elif apply_ in [5, 6, 7]:
-                if attempt < max_retries:
-                    print(f"{YELLOW}[•] Retrying in {retry_delay}s (Attempt {attempt}/{max_retries})...{RESET}")
-                    time.sleep(retry_delay)
-                    continue
-                send_notification("Onlock Notice", msg)
-                return 0
-        except Exception as e:
-            print(f"{RED}[✗] Request exception on attempt {attempt}: {e}{RESET}")
-            if attempt < max_retries:
-                time.sleep(retry_delay)
-                continue
-            return 0
-    return 0
+    print("\n[APPLY]:")
+    try:
+        apply = requests.post(U_apply, data=json.dumps({"is_retry": True}), headers=headers)
+        print(f"Server response time: {apply.headers['Date']}")
+        if apply.json().get("code") != 0:
+            exit(apply.json())
+        data_ = apply.json().get("data", {}) or {}
+        apply_ = data_.get("apply_result", 0)
+        deadline_ = data_.get("deadline_format", "")
+        messages = {
+            1: "Application Successful",
+            4: f"\nAccount Error Please try again after {deadline_} (mm/dd)\n",
+            3: f"\nApplication quota limit reached, please try again after {deadline_.split()[0]} (mm/dd) {deadline_.split()[1]} (GMT+8)\n",
+            5: "\nApplication failed. Please try again later\n",
+            6: "\nPlease try again in a minute\n",
+            7: "\nPlease try again later\n"
+        }
+        print(messages.get(apply_, ""))
+        if apply_ == 1:
+            state_request()
+        elif apply_ in [4, 5, 6, 7]:
+            exit()
+        elif apply_ == 3:
+            return 1
+    except Exception as e:
+        exit(f"apply: {e}")
 
 def get_ntp_time(servers=["pool.ntp.org", "time.google.com", "time.windows.com"]):
     client = ntplib.NTPClient()
     for server in servers:
         try:
-            response = client.request(server, version=3, timeout=3)
+            response = client.request(server, version=3, timeout=5)
             return datetime.fromtimestamp(response.tx_time, timezone.utc)
         except Exception:
             continue
     return datetime.now(timezone.utc)
 
 def get_beijing_time():
-    """Get current time in Beijing timezone (UTC+8)."""
     utc_time = get_ntp_time()
     return utc_time.astimezone(timezone(timedelta(hours=8)))
 
-BEIJING_TZ = timezone(timedelta(hours=8))
-
-def get_next_beijing_midnight(from_beijing_time=None):
-    """
-    Calculate the next 00:00 Beijing time from a given Beijing time.
-    Returns a timezone-aware datetime in Beijing time.
-    
-    Example:
-      - If now is 2026-11-12 (day 12) at 15:00 CST  → next midnight = 2026-11-13 00:00:00 CST (day 13)
-      - If now is 2026-11-12 (day 12) at 23:59 CST  → next midnight = 2026-11-13 00:00:00 CST (day 13)
-    """
-    if from_beijing_time is None:
-        from_beijing_time = get_beijing_time()
-    
-    # Always go to the NEXT calendar day at 00:00 CST
-    # (never "today midnight" — that is in the past or too close)
-    next_date = from_beijing_time.date() + timedelta(days=1)
-    return datetime(
-        next_date.year, next_date.month, next_date.day,
-        0, 0, 0, 0,
-        tzinfo=BEIJING_TZ
-    )
-
-def format_local_time(dt_beijing):
-    """
-    Convert a Beijing-time datetime to local system time and return a readable string.
-    Uses UTC offset from NTP so it works in any country (Iran, Netherlands, etc.)
-    """
-    # Get current UTC offset of the local machine via NTP comparison
-    ntp_utc = get_ntp_time()
-    local_now = datetime.now().replace(tzinfo=None)
-    # Approximate local UTC offset
-    utc_naive = ntp_utc.replace(tzinfo=None)
-    local_offset_seconds = round((local_now - utc_naive).total_seconds() / 1800) * 1800
-    local_tz = timezone(timedelta(seconds=local_offset_seconds))
-    local_dt = dt_beijing.astimezone(local_tz)
-    offset_hours = local_offset_seconds / 3600
-    sign = "+" if offset_hours >= 0 else "-"
-    return f"{local_dt.strftime('%Y-%m-%d %H:%M:%S')} (UTC{sign}{abs(offset_hours):.1f})"
-
-def precise_sleep(target_time, precision=0.0005):
-    """Sleep until target_time with live countdown display."""
+def precise_sleep(target_time, precision=0.01):
     while True:
-        current_beijing = get_beijing_time()
-        diff = (target_time - current_beijing).total_seconds()
-        
+        diff = (target_time - datetime.now(target_time.tzinfo)).total_seconds()
         if diff <= 0:
-            print()
             return
-            
-        days = int(diff // 86400)
-        hours = int((diff % 86400) // 3600)
-        minutes = int((diff % 3600) // 60)
-        seconds = int(diff % 60)
-        millis = int((diff - int(diff)) * 1000)
-        
-        if days > 0:
-            time_str = f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
-        else:
-            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}"
-            
-        sys.stdout.write(f"\r{YELLOW}[⏳] Countdown to 00:00 CST: {time_str}    {RESET}")
-        sys.stdout.flush()
-        
         sleep_time = max(min(diff - precision/2, 1), precision)
         time.sleep(sleep_time)
 
 def measure_latency(url, samples=5):
-    """Measure average network latency to the API endpoint in milliseconds."""
     latencies = []
     for _ in range(samples):
         try:
@@ -414,118 +304,41 @@ def measure_latency(url, samples=5):
             continue
 
     if len(latencies) < 3:
-        return 150
+        return 200
 
     latencies.sort()
     trim = int(len(latencies) * 0.2)
     trimmed = latencies[trim:-trim] if trim else latencies
-    return sum(trimmed) / len(trimmed)
+    return sum(trimmed)/len(trimmed) * 1.3
 
-def wait_and_fire(target_midnight_beijing, attempt_label=""):
-    """
-    Wait until 4 seconds before target midnight (Beijing), measure ping,
-    then fire the request at exactly (00:00 CST - ping_ms).
-    
-    Returns the apply_request() result code.
-    """
-    # ── Phase 1: coarse wait until 4 seconds remain ──────────────────────────
-    print(f"\n{CYAN}[•] Target {attempt_label}: {target_midnight_beijing.strftime('%Y-%m-%d %H:%M:%S')} CST")
-    print(f"{CYAN}[•] Local equivalent: {format_local_time(target_midnight_beijing)}{RESET}")
-    write_log(f"Scheduled request {attempt_label} for: {target_midnight_beijing.strftime('%Y-%m-%d %H:%M:%S')} CST")
+def schedule_daily_task():
+    beijing_tz = timezone(timedelta(hours=8))
 
     while True:
-        current_beijing = get_beijing_time()
-        time_to_target = (target_midnight_beijing - current_beijing).total_seconds()
+        now = get_beijing_time()
+        target = now.replace(hour=23, minute=59, second=59, microsecond=900)
+        if now >= target:
+            target += timedelta(days=1)
 
-        if time_to_target <= 4.0:
-            break
+        print(f"\nNext execution at: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST")
+        while datetime.now(beijing_tz) < target:
+            time_left = (target - datetime.now(beijing_tz)).total_seconds()
+            if time_left > 300:
+                time.sleep(60)
+            else:
+                precise_sleep(target)
 
-        days = int(time_to_target // 86400)
-        hours = int((time_to_target % 86400) // 3600)
-        minutes = int((time_to_target % 3600) // 60)
-        seconds = int(time_to_target % 60)
+        latency = measure_latency(U_apply)
+        execution_time = target + timedelta(minutes=3) - timedelta(milliseconds=latency)
 
-        if days > 0:
-            t_str = f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
-        else:
-            t_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        print(f"Adjusted execution time: {execution_time.strftime('%H:%M:%S.%f')}")
+        precise_sleep(execution_time)
 
-        sys.stdout.write(f"\r{YELLOW}[⏳] Waiting... Time left: {t_str}    {RESET}")
-        sys.stdout.flush()
-        time.sleep(0.5)
+        result = apply_request()
+        if result == 1:
+            return 1
 
-    # ── Phase 2: measure latency precisely at 4s mark ─────────────────────────
-    print(f"\n{YELLOW}[•] 4 seconds remaining. Measuring network latency...{RESET}")
-    latency = measure_latency(U_apply)
-    print(f"{GREEN}[✓] Network latency: {latency:.2f} ms  →  firing {latency:.0f}ms early{RESET}")
-    write_log(f"Measured latency: {latency:.2f} ms")
-
-    # ── Phase 3: precise countdown to (midnight - latency) ───────────────────
-    execution_time = target_midnight_beijing - timedelta(milliseconds=latency)
-    print(f"{BLUE}[•] Adjusted trigger time: {execution_time.strftime('%H:%M:%S.%f')[:-3]} CST{RESET}")
-    precise_sleep(execution_time)
-
-    # ── Phase 4: fire the request ─────────────────────────────────────────────
-    print(f"\n{BLUE}[•] Sending request now...{RESET}")
-    return apply_request()
-
-
-def main_loop():
-    # ── Step 0: check if unlock is already active ─────────────────────────────
-    if state_request():
-        return
-
-    # ── Step 1: determine the CURRENT Beijing date ───────────────────────────
-    now_beijing = get_beijing_time()
-    beijing_date_str = now_beijing.strftime('%Y-%m-%d')
-
-    print(
-        f"\n{CYAN}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
-        f"{CYAN}{BOLD}║{RESET}        {WHITE}{BOLD}SMART DATE SCHEDULER{RESET}          {CYAN}{BOLD}║{RESET}\n"
-        f"{CYAN}{BOLD}╠══════════════════════════════════════╣{RESET}\n"
-        f"{CYAN}{BOLD}║{RESET}  {YELLOW}Current Beijing Date:{RESET} {WHITE}{beijing_date_str}{RESET}      {CYAN}{BOLD}║{RESET}\n"
-        f"{CYAN}{BOLD}║{RESET}  {YELLOW}Current Beijing Time:{RESET} {WHITE}{now_beijing.strftime('%H:%M:%S')}{RESET}         {CYAN}{BOLD}║{RESET}\n"
-        f"{CYAN}{BOLD}╚══════════════════════════════════════╝{RESET}\n"
-    )
-
-    # ── Step 2: schedule Day 1 attempt → next 00:00 CST ──────────────────────
-    # Example: today is Day 12  →  Day 1 target = Day 13 at 00:00 CST
-    day1_target = get_next_beijing_midnight(now_beijing)
-    day1_date_str = day1_target.strftime('%Y-%m-%d')
-
-    print(f"{CYAN}[•] Day 12 (today) is: {beijing_date_str}{RESET}")
-    print(f"{CYAN}[•] Day 13 attempt scheduled at: {day1_date_str} 00:00:00 CST{RESET}")
-
-    result = wait_and_fire(day1_target, attempt_label=f"Day-1 ({day1_date_str} 00:00 CST)")
-
-    if result == 1:
-        print(f"{GREEN}[✔] Unlock successful on Day-1 attempt!{RESET}")
-        send_notification("Onlock Success", f"Bootloader unlock successful at {day1_date_str} 00:00 CST")
-        write_log(f"Unlock successful on Day-1 attempt ({day1_date_str})")
-        return
-
-    # ── Step 3: Day-1 failed → schedule Day 2 attempt ────────────────────────
-    # Example: Day 1 attempt was on Day 13  →  Day 2 target = Day 14 at 00:00 CST
-    print(f"\n{RED}[✗] Day-1 attempt failed or quota full. Scheduling Day-2...{RESET}")
-    write_log(f"Day-1 attempt failed. Scheduling Day-2 attempt.")
-
-    day2_target = get_next_beijing_midnight(day1_target)
-    day2_date_str = day2_target.strftime('%Y-%m-%d')
-
-    print(f"{CYAN}[•] Day-2 attempt scheduled at: {day2_date_str} 00:00:00 CST{RESET}")
-    send_notification("Onlock Rescheduled", f"Retrying at {day2_date_str} 00:00 CST")
-
-    result = wait_and_fire(day2_target, attempt_label=f"Day-2 ({day2_date_str} 00:00 CST)")
-
-    if result == 1:
-        print(f"{GREEN}[✔] Unlock successful on Day-2 attempt!{RESET}")
-        send_notification("Onlock Success", f"Bootloader unlock successful at {day2_date_str} 00:00 CST")
-        write_log(f"Unlock successful on Day-2 attempt ({day2_date_str})")
-    else:
-        print(f"{RED}[✗] Day-2 attempt also failed. Please run the script again tomorrow.{RESET}")
-        send_notification("Onlock Failed", "Both attempts failed. Try again manually.")
-        write_log(f"Both Day-1 and Day-2 attempts failed.")
-
-
-if __name__ == "__main__":
-    main_loop()
+while True:
+    result = schedule_daily_task()
+    if result != 1:
+        break
