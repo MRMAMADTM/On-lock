@@ -23,7 +23,7 @@ import requests, json, hashlib, urllib.parse, time, sys, base64, ntplib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse, quote
 
-version = "1.7 Exact NextDay Pro"
+version = "2.0 Ultimate Pro"
 
 try:
     os.system('termux-wake-lock > /dev/null 2>&1')
@@ -33,6 +33,14 @@ except Exception:
 def send_notification(title, content):
     try:
         os.system(f'termux-notification --title "{title}" --content "{content}" --sound')
+    except Exception:
+        pass
+
+# ===== Log System (ذخیره تاریخچه در فایل) =====
+def write_log(message):
+    try:
+        with open("on-lock.log", "a", encoding="utf-8") as log_file:
+            log_file.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
     except Exception:
         pass
 
@@ -66,6 +74,59 @@ print(
 
 User = "okhttp/4.12.0"
 headers = {"User-Agent": User}
+
+# ===== Config File Management (مدیریت فایل تنظیمات) =====
+CONFIG_FILE = "config.json"
+default_config = {
+    "auto_retry_attempts": 3,
+    "retry_delay_seconds": 2,
+    "preferred_region": "sgp"
+}
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(default_config, f, indent=4)
+    return default_config
+
+config = load_config()
+
+# ===== Multi-account Support (پشتیبانی از چند اکانت و سوییچ) =====
+ACCOUNTS_FILE = "accounts.json"
+
+def get_account_data():
+    accounts = []
+    if os.path.exists(ACCOUNTS_FILE):
+        try:
+            with open(ACCOUNTS_FILE, "r") as f:
+                accounts = json.load(f)
+        except Exception:
+            pass
+            
+    if accounts:
+        print(f"\n{BLUE}[•] Saved Accounts:{RESET}")
+        for idx, acc in enumerate(accounts):
+            print(f"  {idx + 1}. User ID: {acc.get('userId')} (Region: {acc.get('region')})")
+        print(f"  {len(accounts) + 1}. Add New Account / Login")
+        
+        choice = input(f"{YELLOW}➤ Choose account (1-{len(accounts)+1}): {RESET}").strip()
+        if choice.isdigit():
+            c = int(choice)
+            if 1 <= c <= len(accounts):
+                return accounts[c - 1]
+                
+    # لاگین جدید و افزودن به لیست
+    new_acc = login()
+    if new_acc not in accounts:
+        accounts.append(new_acc)
+        with open(ACCOUNTS_FILE, "w") as f:
+            json.dump(accounts, f, indent=4)
+    return new_acc
 
 def login():
     base_url = "https://account.xiaomi.com"
@@ -138,57 +199,33 @@ def login():
     serviceToken = requests.get(res['location'], headers=headers, cookies=cookies).cookies.get_dict()
 
     micdata = {"userId": res['userId'], "new_bbs_serviceToken": serviceToken["new_bbs_serviceToken"], "region": region, "deviceId": deviceId}
-    with open("micdata.json", "w") as f: json.dump(micdata, f)
     return micdata
 
-try:
-    with open('micdata.json') as f:
-        micdata = json.load(f)
-
-    if not all(micdata.get(k) for k in ("userId", "new_bbs_serviceToken", "region", "deviceId")):
-        raise ValueError
-
-    account_id = micdata['userId']
-
-    print(
-        f"\n{BLUE}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
-        f"{BLUE}{BOLD}║     {RESET} {WHITE}{BOLD} PREVIOUS ACCOUNT DETAILS{RESET}       {BLUE}{BOLD}║{RESET}\n"
-        f"{BLUE}{BOLD}╠══════════════════════════════════════╣{RESET}\n"
-        f"{BLUE}{BOLD}║       {RESET} {YELLOW}Account ID:{RESET} {WHITE}{account_id}{RESET}        {BLUE}{BOLD}║{RESET}\n"
-        f"{BLUE}{BOLD}╚══════════════════════════════════════╝{RESET}\n"
-    )
-
-    input(
-        f"{YELLOW}➤ Press {WHITE}Enter{RESET}{YELLOW} to continue | Ctrl + D to logout{RESET}\n"
-    )
-
-except (FileNotFoundError, json.JSONDecodeError, EOFError, ValueError):
-    if os.path.exists('micdata.json'):
-        os.remove('micdata.json')
-
-    micdata = login()
+micdata = get_account_data()
 
 new_bbs_serviceToken = micdata["new_bbs_serviceToken"]
 deviceId = micdata["deviceId"]
 region = micdata['region']
 
-print(
-    f"\n{BOX}{BOLD}╔══════════════════════════════════════╗{RESET}"
-)
-print(
-    f"{BOX}{BOLD}║{RESET}          {WHITE}{BOLD}ACCOUNT INFORMATION{RESET}         {BOX}{BOLD}║{RESET}"
-)
-print(
-    f"{BOX}{BOLD}╠══════════════════════════════════════╣{RESET}"
-)
-print(
-    f"{BOX}{BOLD}║{RESET} {YELLOW}          Account Region:{RESET} {WHITE}{region}{RESET}         {BOX}{BOLD}║{RESET}"
-)
-print(
-    f"{BOX}{BOLD}╚══════════════════════════════════════╝{RESET}\n"
-)
+# ===== Region Selector (انتخاب دستی ریجن سرور) =====
+print(f"\n{BOX}{BOLD}╔══════════════════════════════════════╗{RESET}")
+print(f"{BOX}{BOLD}║{RESET}          {WHITE}{BOLD}REGION SELECTOR{RESET}             {BOX}{BOLD}║{RESET}")
+print(f"{BOX}{BOLD}╠══════════════════════════════════════╣{RESET}")
+print(f"{BOX}{BOLD}║{RESET} Detected Region: {WHITE}{region}{RESET}                  {BOX}{BOLD}║{RESET}")
+print(f"{BOX}{BOLD}╚══════════════════════════════════════╝{RESET}\n")
 
-api = "https://sgp-api.buy.mi.com/bbs/api/global/"
+region_choice = input(f"{YELLOW}➤ Use default region ({region}) or change? (d/c): {RESET}").strip().lower()
+if region_choice == 'c':
+    print("1. Global SGP (sgp-api.buy.mi.com)\n2. India / Other")
+    r_sel = input("Select region option (1/2): ").strip()
+    if r_sel == '1':
+        api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
+    else:
+        api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
+else:
+    api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
+
+api = api_base
 
 U_state = api + "user/bl-switch/state"
 U_apply = api + "apply/bl-auth"
@@ -216,6 +253,7 @@ try:
         f"{CYAN}{BOLD}║        {RESET} {YELLOW}Points:{RESET} {WHITE}{info.get('level_info', {}).get('current_value', 'N/A')}{RESET}                  {CYAN}{BOLD}║{RESET}\n"
         f"{CYAN}{BOLD}╚══════════════════════════════════════╝{RESET}\n"
     )
+    write_log(f"Account loaded successfully. ID: {micdata.get('userId')}, Region: {region}")
 except Exception as e:
     print(f"{RED}[✗] Failed to fetch account info: {e}{RESET}")
 
@@ -226,50 +264,67 @@ def state_request():
         deadline_ = state.get("deadline_format", "")
         if is_ == 1:
             send_notification("Onlock Success", f"Unlock access granted till {deadline_}")
+            write_log(f"Unlock access granted till {deadline_}")
             exit(f"{GREEN}✔ Unlock access granted till {deadline_} (Beijing time){RESET}\n")
     except Exception:
         pass
 
 state_request()
 
+# ===== Auto Retry Support (تلاش خودکار با تنظیمات تعداد و فاصله) =====
 def apply_request():
-    print(f"\n{BLUE}[•] Sending initial unlock request...{RESET}")
-    try:
-        apply = requests.post(U_apply, data=json.dumps({"is_retry": True}), headers=headers)
-        res_json = apply.json()
-        if res_json.get("code") != 0:
-            print(f"{RED}[✗] Server error code: {res_json.get('code')}{RESET}")
-            return 0
+    print(f"\n{BLUE}[•] Sending unlock request with Auto Retry config...{RESET}")
+    max_retries = config.get("auto_retry_attempts", 3)
+    retry_delay = config.get("retry_delay_seconds", 2)
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            apply = requests.post(U_apply, data=json.dumps({"is_retry": True}), headers=headers)
+            res_json = apply.json()
+            if res_json.get("code") != 0:
+                print(f"{RED}[✗] Attempt {attempt}/{max_retries} - Server error code: {res_json.get('code')}{RESET}")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    continue
+                return 0
+                
+            data_ = res_json.get("data", {}) or {}
+            apply_ = data_.get("apply_result", 0)
+            deadline_ = data_.get("deadline_format", "")
             
-        data_ = res_json.get("data", {}) or {}
-        apply_ = data_.get("apply_result", 0)
-        deadline_ = data_.get("deadline_format", "")
-        
-        messages = {
-            1: "Application Successful!",
-            4: f"Account Error. Try again after {deadline_}",
-            3: f"Quota limit reached. Try again tomorrow at 00:00 CST",
-            5: "Application failed. Try again later",
-            6: "Please try again in a minute",
-            7: "Please try again later"
-        }
-        
-        msg = messages.get(apply_, f"Result code: {apply_}")
-        print(f"{YELLOW}[i] Response: {msg}{RESET}")
-        
-        if apply_ == 1:
-            send_notification("Onlock Success", "Bootloader unlock application successful!")
-            state_request()
-            return 1
-        elif apply_ in [3, 4]:
-            send_notification("Onlock Notice", "Quota full. Scheduled for next day 00:00 CST.")
-            return 3
-        elif apply_ in [5, 6, 7]:
-            send_notification("Onlock Notice", msg)
+            messages = {
+                1: "Application Successful!",
+                4: f"Account Error. Try again after {deadline_}",
+                3: f"Quota limit reached. Try again tomorrow at 00:00 CST",
+                5: "Application failed. Try again later",
+                6: "Please try again in a minute",
+                7: "Please try again later"
+            }
+            
+            msg = messages.get(apply_, f"Result code: {apply_}")
+            print(f"{YELLOW}[i] Response: {msg}{RESET}")
+            write_log(f"Apply response: {msg}")
+            
+            if apply_ == 1:
+                send_notification("Onlock Success", "Bootloader unlock application successful!")
+                state_request()
+                return 1
+            elif apply_ in [3, 4]:
+                send_notification("Onlock Notice", "Quota full. Scheduled for next day 00:00 CST.")
+                return 3
+            elif apply_ in [5, 6, 7]:
+                if attempt < max_retries:
+                    print(f"{YELLOW}[•] Retrying in {retry_delay}s (Attempt {attempt}/{max_retries})...{RESET}")
+                    time.sleep(retry_delay)
+                    continue
+                send_notification("Onlock Notice", msg)
+                return 0
+        except Exception as e:
+            print(f"{RED}[✗] Request exception on attempt {attempt}: {e}{RESET}")
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+                continue
             return 0
-    except Exception as e:
-        print(f"{RED}[✗] Request exception: {e}{RESET}")
-        return 0
     return 0
 
 def get_ntp_time(servers=["pool.ntp.org", "time.google.com", "time.windows.com"]):
@@ -286,6 +341,7 @@ def get_beijing_time():
     utc_time = get_ntp_time()
     return utc_time.astimezone(timezone(timedelta(hours=8)))
 
+# ===== Countdown Timer (تایمر معکوس زنده پیشرفته) =====
 def precise_sleep(target_time, precision=0.0005):
     while True:
         current_beijing = get_beijing_time()
@@ -298,8 +354,10 @@ def precise_sleep(target_time, precision=0.0005):
         hours = int(diff // 3600)
         minutes = int((diff % 3600) // 60)
         seconds = int(diff % 60)
+        millis = int((diff - int(diff)) * 1000)
         
-        sys.stdout.write(f"\r{YELLOW}[⏳] Next try in: {hours:02d}:{minutes:02d}:{seconds:02d} (Beijing Time)    {RESET}")
+        # نمایش تایمر معکوس زنده و دقیق روی ترمینال
+        sys.stdout.write(f"\r{YELLOW}[⏳] Countdown to Target: {hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d} (CST)    {RESET}")
         sys.stdout.flush()
         
         sleep_time = max(min(diff - precision/2, 1), precision)
@@ -324,38 +382,35 @@ def measure_latency(url, samples=5):
     return sum(trimmed)/len(trimmed)
 
 def main_loop():
-    # ۱. انجام درخواست اولیه به محض ورود
+    # ۱. اجرای درخواست اولیه و ثبت لاگ
     res = apply_request()
     if res == 1:
         return
 
-    # ۲. محاسبه دقیق ساعت ۰۰:۰۰ پکنِ روزِ بعد (حتی اگر الان هر ساعتی از روز باشد)
+    # ۲. تنظیم دقیق زمان هدف روی ساعت ۰۰:۰۰ فردای روز جاری به وقت پکن
     now = get_beijing_time()
-    
-    # ابتدا ساعت ۰۰:۰۰ امروز پکن را حساب میکنیم
     today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    # از آنجایی که الان قطعاً از ساعت ۰۰:۰۰ گذشته است (چون داریم در طول روز تست میکنیم)،
-    # هدف دقیقاً روی ساعت ۰۰:۰۰ فردایِ روزِ جاری تنظیم می‌شود.
     target = (today_midnight + timedelta(days=1)).replace(microsecond=999000)
 
-    print(f"\n{CYAN}[•] Scheduled target time (Next day 00:00 CST): {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
+    print(f"\n{CYAN}[•] Scheduled target time for next day 00:00 CST: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
+    write_log(f"Scheduled next request for: {target.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # ۳. ورود به حلقه انتظار پشت صحنه تا رسیدن به ساعت ۰۰:۰۰ روز بعد
+    # ۳. حلقه انتظار پشت صحنه با تایمر معکوس زنده تا ۱ ثانیه مانده به ۰۰:۰۰ پکن
     while True:
         current_time = get_beijing_time()
         time_to_target = (target - current_time).total_seconds()
         
         if time_to_target <= 1.0:
-            print(f"\n{YELLOW}[•] Measuring real-time network latency...{RESET}")
+            print(f"\n{YELLOW}[•] Exactly 1s remaining. Measuring real-time network latency...{RESET}")
             latency = measure_latency(U_apply)
+            print(f"{GREEN}[✓] Latency Offset deducted: {latency:.2f} ms{RESET}")
             break
             
         hours = int(time_to_target // 3600)
         minutes = int((time_to_target % 3600) // 60)
         seconds = int(time_to_target % 60)
         
-        sys.stdout.write(f"\r{YELLOW}[⏳] Waiting for next day 00:00 CST... Time left: {hours:02d}:{minutes:02d}:{seconds:02d}    {RESET}")
+        sys.stdout.write(f"\r{YELLOW}[⏳] Waiting... Time left: {hours:02d}:{minutes:02d}:{seconds:02d}    {RESET}")
         sys.stdout.flush()
         
         time.sleep(0.5)
@@ -363,15 +418,17 @@ def main_loop():
     execution_time = target - timedelta(milliseconds=latency)
     precise_sleep(execution_time)
 
-    # ۴. ارسال درخواست نهایی در ساعت ۰۰:۰۰ روز بعد
-    print(f"\n{BLUE}[•] Sending final critical request at next day 00:00 CST...{RESET}")
+    # ۴. ارسال درخواست نهایی و ارسال نوتیفیکیشن نتیجه
+    print(f"\n{BLUE}[•] Sending final precise request at next day 00:00 CST...{RESET}")
     result = apply_request()
     if result == 1:
         print(f"{GREEN}[✔] Unlock request successful!{RESET}")
         send_notification("Onlock Success", "Bootloader unlock application successful!")
+        write_log("Bootloader unlock application successful!")
     else:
         print(f"{RED}[✗] Request failed or quota full again.{RESET}")
         send_notification("Onlock Failed", "Unlock request failed or quota full.")
+        write_log("Unlock request failed or quota full.")
 
 if __name__ == "__main__":
     main_loop()
