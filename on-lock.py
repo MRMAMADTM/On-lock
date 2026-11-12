@@ -23,7 +23,7 @@ import requests, json, hashlib, urllib.parse, time, sys, base64, ntplib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse, quote
 
-version = "1.3 Clean Pro"
+version = "1.6 Smart Target Pro"
 
 try:
     os.system('termux-wake-lock > /dev/null 2>&1')
@@ -233,7 +233,7 @@ def state_request():
 state_request()
 
 def apply_request():
-    print(f"\n{BLUE}[•] Sending unlock request...{RESET}")
+    print(f"\n{BLUE}[•] Sending initial unlock request...{RESET}")
     try:
         apply = requests.post(U_apply, data=json.dumps({"is_retry": True}), headers=headers)
         res_json = apply.json()
@@ -261,10 +261,10 @@ def apply_request():
             send_notification("Onlock Success", "Bootloader unlock application successful!")
             state_request()
             return 1
-        elif apply_ == 3:
-            send_notification("Onlock Quota", "Quota limit reached. Waiting for tomorrow.")
+        elif apply_ in [3, 4]:
+            send_notification("Onlock Notice", f"Request rejected. Scheduled for next day 00:00 CST.")
             return 3
-        elif apply_ in [4, 5, 6, 7]:
+        elif apply_ in [5, 6, 7]:
             send_notification("Onlock Notice", msg)
             return 0
     except Exception as e:
@@ -291,6 +291,10 @@ def precise_sleep(target_time, precision=0.0005):
         current_beijing = get_beijing_time()
         diff = (target_time - current_beijing).total_seconds()
         
+        if diff <= 0:
+            print()
+            return
+            
         hours = int(diff // 3600)
         minutes = int((diff % 3600) // 60)
         seconds = int(diff % 60)
@@ -298,9 +302,6 @@ def precise_sleep(target_time, precision=0.0005):
         sys.stdout.write(f"\r{YELLOW}[⏳] Next try in: {hours:02d}:{minutes:02d}:{seconds:02d} (Beijing Time)    {RESET}")
         sys.stdout.flush()
         
-        if diff <= 0:
-            print()
-            return
         sleep_time = max(min(diff - precision/2, 1), precision)
         time.sleep(sleep_time)
 
@@ -323,47 +324,47 @@ def measure_latency(url, samples=5):
     return sum(trimmed)/len(trimmed)
 
 def main_loop():
-    # ۱. یکبار اجرای اولیه پس از ورود
-    print(f"\n{BLUE}[•] Executing initial request...{RESET}")
+    # ۱. انجام درخواست اولیه به محض ورود (که میدونیم چون الان ساعت ۰۰:۰۰ نیست رد میشه)
     res = apply_request()
     if res == 1:
         return
 
-    # ۲. رفتن به حالت انتظار هوشمند تا ساعت ۰۰:۰۰ فردا به وقت پکن
+    # ۲. محاسبه دقیق ساعت ۰۰:۰۰ فردای روزِ جاری به وقت پکن
+    now = get_beijing_time()
+    # تنظیم هدف روی ساعت ۰۰:۰۰ روز بعد به وقت پکن
+    target = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=999000)
+
+    print(f"\n{CYAN}[•] Scheduled target time for next day 00:00 CST: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
+
+    # ۳. ورود به حلقه انتظار پشت صحنه تا رسیدن به ساعت ۰۰:۰۰ روز بعد
     while True:
-        now = get_beijing_time()
-        target = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=999000)
+        current_time = get_beijing_time()
+        time_to_target = (target - current_time).total_seconds()
         
-        today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=999000)
-        if now < today_midnight:
-            target = today_midnight
-
-        # صبر کردن تا ۱ ثانیه مانده به ساعت ۰۰:۰۰
-        while True:
-            current_time = get_beijing_time()
-            time_to_target = (target - current_time).total_seconds()
-            
-            hours = int(time_to_target // 3600)
-            minutes = int((time_to_target % 3600) // 60)
-            seconds = int(time_to_target % 60)
-            
-            sys.stdout.write(f"\r{YELLOW}[⏳] Waiting for 00:00 CST... Time left: {hours:02d}:{minutes:02d}:{seconds:02d}    {RESET}")
-            sys.stdout.flush()
-
-            if time_to_target <= 1.0:
-                print(f"\n{YELLOW}[•] Measuring real-time network latency...{RESET}")
-                latency = measure_latency(U_apply)
-                break
-                
-            time.sleep(0.5)
-
-        execution_time = target - timedelta(milliseconds=latency)
-        precise_sleep(execution_time)
-
-        # ارسال درخواست دقیق در زمان تعیین شده
-        result = apply_request()
-        if result == 1:
+        if time_to_target <= 1.0:
+            print(f"\n{YELLOW}[•] Measuring real-time network latency...{RESET}")
+            latency = measure_latency(U_apply)
             break
+            
+        hours = int(time_to_target // 3600)
+        minutes = int((time_to_target % 3600) // 60)
+        seconds = int(time_to_target % 60)
+        
+        sys.stdout.write(f"\r{YELLOW}[⏳] Waiting for next day 00:00 CST... Time left: {hours:02d}:{minutes:02d}:{seconds:02d}    {RESET}")
+        sys.stdout.flush()
+        
+        time.sleep(0.5)
+
+    execution_time = target - timedelta(milliseconds=latency)
+    precise_sleep(execution_time)
+
+    # ۴. ارسال درخواست اصلی و نهایی در ساعت ۰۰:۰۰ روز بعد
+    print(f"\n{BLUE}[•] Sending final critical request at 00:00 CST...{RESET}")
+    result = apply_request()
+    if result == 1:
+        print(f"{GREEN}[✔] Unlock request successful!{RESET}")
+    else:
+        print(f"{RED}[✗] Request failed or quota full again.{RESET}")
 
 if __name__ == "__main__":
     main_loop()
