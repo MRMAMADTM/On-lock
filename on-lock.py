@@ -23,7 +23,7 @@ import requests, json, hashlib, urllib.parse, time, sys, base64, ntplib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse, quote
 
-version = "1.6 Smart Target Pro"
+version = "1.7 Exact NextDay Pro"
 
 try:
     os.system('termux-wake-lock > /dev/null 2>&1')
@@ -262,7 +262,7 @@ def apply_request():
             state_request()
             return 1
         elif apply_ in [3, 4]:
-            send_notification("Onlock Notice", f"Request rejected. Scheduled for next day 00:00 CST.")
+            send_notification("Onlock Notice", "Quota full. Scheduled for next day 00:00 CST.")
             return 3
         elif apply_ in [5, 6, 7]:
             send_notification("Onlock Notice", msg)
@@ -324,17 +324,22 @@ def measure_latency(url, samples=5):
     return sum(trimmed)/len(trimmed)
 
 def main_loop():
-    # ۱. انجام درخواست اولیه به محض ورود (که میدونیم چون الان ساعت ۰۰:۰۰ نیست رد میشه)
+    # ۱. انجام درخواست اولیه به محض ورود
     res = apply_request()
     if res == 1:
         return
 
-    # ۲. محاسبه دقیق ساعت ۰۰:۰۰ فردای روزِ جاری به وقت پکن
+    # ۲. محاسبه دقیق ساعت ۰۰:۰۰ پکنِ روزِ بعد (حتی اگر الان هر ساعتی از روز باشد)
     now = get_beijing_time()
-    # تنظیم هدف روی ساعت ۰۰:۰۰ روز بعد به وقت پکن
-    target = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=999000)
+    
+    # ابتدا ساعت ۰۰:۰۰ امروز پکن را حساب میکنیم
+    today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # از آنجایی که الان قطعاً از ساعت ۰۰:۰۰ گذشته است (چون داریم در طول روز تست میکنیم)،
+    # هدف دقیقاً روی ساعت ۰۰:۰۰ فردایِ روزِ جاری تنظیم می‌شود.
+    target = (today_midnight + timedelta(days=1)).replace(microsecond=999000)
 
-    print(f"\n{CYAN}[•] Scheduled target time for next day 00:00 CST: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
+    print(f"\n{CYAN}[•] Scheduled target time (Next day 00:00 CST): {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
 
     # ۳. ورود به حلقه انتظار پشت صحنه تا رسیدن به ساعت ۰۰:۰۰ روز بعد
     while True:
@@ -358,13 +363,15 @@ def main_loop():
     execution_time = target - timedelta(milliseconds=latency)
     precise_sleep(execution_time)
 
-    # ۴. ارسال درخواست اصلی و نهایی در ساعت ۰۰:۰۰ روز بعد
-    print(f"\n{BLUE}[•] Sending final critical request at 00:00 CST...{RESET}")
+    # ۴. ارسال درخواست نهایی در ساعت ۰۰:۰۰ روز بعد
+    print(f"\n{BLUE}[•] Sending final critical request at next day 00:00 CST...{RESET}")
     result = apply_request()
     if result == 1:
         print(f"{GREEN}[✔] Unlock request successful!{RESET}")
+        send_notification("Onlock Success", "Bootloader unlock application successful!")
     else:
         print(f"{RED}[✗] Request failed or quota full again.{RESET}")
+        send_notification("Onlock Failed", "Unlock request failed or quota full.")
 
 if __name__ == "__main__":
     main_loop()
