@@ -60,36 +60,36 @@ fi
 chmod +x ~/.onlock/MiCommunityTool.py
 
 # ===== CREATE EXECUTABLE (do NOT auto-run) =====
-echo -e "${GREEN}🔧 Installing 'onlock' command...${NC}"
+echo -e "${GREEN}🔧 Installing 'on-lock' command...${NC}"
 
 if [ -n "$PREFIX" ] && [ -d "$PREFIX/bin" ]; then
     # Termux
-    cat > "$PREFIX/bin/onlock" << 'EOF'
+    cat > "$PREFIX/bin/on-lock" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 python3 "$HOME/.onlock/MiCommunityTool.py" "$@"
 EOF
-    chmod +x "$PREFIX/bin/onlock"
-    echo -e "${GREEN}✅ Installed to Termux bin ($PREFIX/bin/onlock)${NC}"
+    chmod +x "$PREFIX/bin/on-lock"
+    echo -e "${GREEN}✅ Installed to Termux bin ($PREFIX/bin/on-lock)${NC}"
 elif [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
-    cat > /usr/local/bin/onlock << 'EOF'
+    cat > /usr/local/bin/on-lock << 'EOF'
 #!/bin/bash
 python3 "$HOME/.onlock/MiCommunityTool.py" "$@"
 EOF
-    chmod +x /usr/local/bin/onlock
-    echo -e "${GREEN}✅ Installed to /usr/local/bin/onlock${NC}"
+    chmod +x /usr/local/bin/on-lock
+    echo -e "${GREEN}✅ Installed to /usr/local/bin/on-lock${NC}"
 else
-    cat > ~/.onlock/onlock << 'EOF'
+    cat > ~/.onlock/on-lock << 'EOF'
 #!/bin/bash
 python3 "$HOME/.onlock/MiCommunityTool.py" "$@"
 EOF
-    chmod +x ~/.onlock/onlock
+    chmod +x ~/.onlock/on-lock
     # add to PATH if missing
     if ! echo "$PATH" | grep -q "$HOME/.onlock"; then
         echo 'export PATH="$HOME/.onlock:$PATH"' >> ~/.bashrc 2>/dev/null
         echo 'export PATH="$HOME/.onlock:$PATH"' >> ~/.zshrc 2>/dev/null
     fi
     export PATH="$HOME/.onlock:$PATH"
-    echo -e "${GREEN}✅ Installed to ~/.onlock/onlock (added to PATH)${NC}"
+    echo -e "${GREEN}✅ Installed to ~/.onlock/on-lock (added to PATH)${NC}"
 fi
 
 # ===== COMPLETE (no auto-run) =====
