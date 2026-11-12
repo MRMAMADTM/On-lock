@@ -18,34 +18,29 @@ echo "║        Unlock Permission Installer         ║"
 echo "╚════════════════════════════════════════════╝"
 echo -e "${RESET}"
 
-
 sleep 0.5
 echo -e "${BLUE}[•] Preparing environment...${RESET}"
 
 # Update packages
 pkg update -y > /dev/null 2>&1
 
-# Install python
+# Install python + deps
 echo -e "${YELLOW}[•] Checking Python...${RESET}"
 pkg install python -y > /dev/null 2>&1
+pip install requests ntplib -q > /dev/null 2>&1
 
 # Create hidden folder
 mkdir -p $HOME/.onlock
 
-echo -e "${BLUE}[•] Installing core tool...${RESET}"
+echo -e "${BLUE}[•] Downloading core tool...${RESET}"
 
-# Copy main script (local install mode - place MiCommunityTool.py next to this script or use curl if you host it)
-if [ -f "./MiCommunityTool.py" ]; then
-    cp ./MiCommunityTool.py $HOME/.onlock/MiCommunityTool.py
-else
-    echo -e "${YELLOW}[!] MiCommunityTool.py not found in current dir.${RESET}"
-    echo -e "${YELLOW}    Place the script next to install.sh or edit the download URL.${RESET}"
-    exit 1
-fi
+# Download main script from GitHub
+curl -sSL https://raw.githubusercontent.com/MRMAMADTM/On-lock/main/MiCommunityTool.py \
+  -o $HOME/.onlock/MiCommunityTool.py
 
-# Check
-if [ ! -f "$HOME/.onlock/MiCommunityTool.py" ]; then
-    echo -e "${RED}[✗] Install failed!${RESET}"
+# Check download
+if [ ! -f "$HOME/.onlock/MiCommunityTool.py" ] || [ ! -s "$HOME/.onlock/MiCommunityTool.py" ]; then
+    echo -e "${RED}[✗] Download failed! Check internet connection.${RESET}"
     exit 1
 fi
 
