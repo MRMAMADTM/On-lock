@@ -18,7 +18,6 @@ echo "║        Unlock Permission Installer         ║"
 echo "╚════════════════════════════════════════════╝"
 echo -e "${RESET}"
 
-
 sleep 0.5
 echo -e "\( {BLUE}[•] Preparing environment... \){RESET}"
 
@@ -29,14 +28,14 @@ pkg update -y > /dev/null 2>&1
 echo -e "\( {YELLOW}[•] Checking Python... \){RESET}"
 pkg install python -y > /dev/null 2>&1
 
-# Create hidden folder
-mkdir -p $HOME/.on-lock
+# Create folder
+mkdir -p "$HOME/.on-lock"
 
 echo -e "\( {BLUE}[•] Downloading core tool... \){RESET}"
 
 # Download main script
-curl -L https://raw.githubusercontent.com/MRMAMADTM/On-lock/main/on-lock.py \
--o $HOME/.on-lock/on-lock.py > /dev/null 2>&1
+curl -L "https://raw.githubusercontent.com/MRMAMADTM/On-lock/main/on-lock.py" \
+-o "$HOME/.on-lock/on-lock.py"
 
 # Check download
 if [ ! -f "$HOME/.on-lock/on-lock.py" ]; then
@@ -46,13 +45,10 @@ fi
 
 echo -e "\( {BLUE}[•] Creating launcher... \){RESET}"
 
-# Launcher command
-cat > $PREFIX/bin/on-lock << 'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-python \( HOME/.on-lock/on-lock.py " \)@"
-EOF
-
-chmod +x $PREFIX/bin/on-lock
+# Create launcher safely for Termux
+printf '%s\n' '#!/data/data/com.termux/files/usr/bin/bash' > "$PREFIX/bin/on-lock"
+printf '%s\n' 'python "\( HOME/.on-lock/on-lock.py" " \)@"' >> "$PREFIX/bin/on-lock"
+chmod +x "$PREFIX/bin/on-lock"
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════╗"
