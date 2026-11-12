@@ -2,37 +2,50 @@
 
 clear
 
-echo -e "\033[1;36m"
-echo "╔════════════════════════════════════════════╗"
-echo "║     ⚡ Onlock Bootloader Ultimate ⚡       ║"
-echo "║        Unlock Permission Installer         ║"
-echo "╚════════════════════════════════════════════╝"
-echo -e "\033[0m"
+# Colors
+CYAN="\033[96m"
+GREEN="\033[92m"
+YELLOW="\033[93m"
+RED="\033[91m"
+WHITE="\033[97m"
+BOLD="\033[1m"
+RESET="\033[0m"
+
+echo -e "${CYAN}${BOLD}"
+echo " ██████╗ ███╗   ██╗██╗      ██████╗  ██████╗██╗  ██╗"
+echo "██╔═══██╗████╗  ██║██║     ██╔═══██╗██╔════╝██║ ██╔╝"
+echo "██║   ██║██╔██╗ ██║██║     ██║   ██║██║     █████╔╝ "
+echo "██║   ██║██║╚██╗██║██║     ██║   ██║██║     ██╔═██╗ "
+echo "╚██████╔╝██║ ╚████║███████╗╚██████╔╝╚██████╗██║  ██╗"
+echo " ╚═════╝ ╚═╝  ╚═══╝╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝"
+echo -e "${RESET}"
+echo -e "${WHITE}${BOLD}        [V2.0.0] Onlock Installer{RESET}"
+echo -e "${CYAN}───────────────────────────────────────────────${RESET}"
 
 sleep 0.5
-echo -e "\033[1;34m[•] Preparing environment & updating repositories...\033[0m"
+echo -e "${YELLOW}[•] Preparing environment & updating repositories...${RESET}"
 
 pkg update -y > /dev/null 2>&1
 
-echo -e "\033[1;33m[•] Installing Python, Termux-Tools, Termux-API & cURL...\033[0m"
+echo -e "${YELLOW}[•] Installing Python, Termux-Tools, Termux-API & cURL...${RESET}"
 pkg install python termux-tools termux-api curl -y > /dev/null 2>&1
 
-echo -e "\033[1;33m[•] Installing required Python libraries (requests, ntplib)...\033[0m"
+echo -e "${YELLOW}[•] Installing required Python libraries (requests, ntplib)...${RESET}"
 pip install --upgrade pip > /dev/null 2>&1
 pip install requests ntplib > /dev/null 2>&1
 
 mkdir -p $HOME/.on-lock
 
-echo -e "\033[1;34m[•] Downloading core tool from GitHub...\033[0m"
+echo -e "${CYAN}[•] Downloading Onlock core tool from GitHub...${RESET}"
 
 curl -fsSL https://raw.githubusercontent.com/MRMAMADTM/On-lock/main/on-lock.py -o $HOME/.on-lock/on-lock.py
 
 if [ ! -s $HOME/.on-lock/on-lock.py ]; then
-    echo -e "\033[1;31m[✗] Download failed! Please check your internet connection or GitHub repository.\033[0m"
+    echo -e "${RED}[✗] Download failed! Please check your internet connection or GitHub repository.${RESET}"
     exit 1
 fi
 
-echo -e "\033[1;34m[•] Creating global executable launcher...\033[0m"
+echo -e "${CYAN}[•] Creating global executable launcher...${RESET}"
 
 cat << 'EOF' > $PREFIX/bin/on-lock
 #!/data/data/com.termux/files/usr/bin/bash
@@ -43,10 +56,10 @@ EOF
 chmod +x $PREFIX/bin/on-lock
 
 echo ""
-echo -e "\033[1;32m╔══════════════════════════════════════╗"
+echo -e "${GREEN}╔══════════════════════════════════════╗"
 echo -e "║          ✅ INSTALL COMPLETE         ║"
-echo -e "╚══════════════════════════════════════╝\033[0m"
-echo -e "\033[1;37mTelegram Channel: \033[1;36mhttps://t.me/unlock_bootloader_xiaomi\033[0m"
-echo -e "\033[1;37mOwner: \033[1;36m@Mrmamadtm\033[0m"
-echo -e "\033[1;33mRun tool using: \033[1;32mon-lock\033[0m"
+echo -e "╚══════════════════════════════════════╝${RESET}"
+echo -e "${WHITE}Telegram Channel: ${CYAN}https://t.me/unlock_bootloader_xiaomi${RESET}"
+echo -e "${WHITE}Developer: ${CYAN}@MRMAMADTM${RESET}"
+echo -e "${YELLOW}Run tool using: ${GREEN}on-lock${RESET}"
 echo ""
