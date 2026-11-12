@@ -23,7 +23,7 @@ import requests, json, hashlib, urllib.parse, time, sys, base64, ntplib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse, quote
 
-version = "2.2 Initial + Smart Scheduler"
+version = "2.5 Ultimate Bulletproof"
 
 try:
     os.system('termux-wake-lock > /dev/null 2>&1')
@@ -36,6 +36,7 @@ def send_notification(title, content):
     except Exception:
         pass
 
+# 4. Log System (ذخیره تاریخچه در فایل)
 def write_log(message):
     try:
         with open("on-lock.log", "a", encoding="utf-8") as log_file:
@@ -74,6 +75,7 @@ print(
 User = "okhttp/4.12.0"
 headers = {"User-Agent": User}
 
+# 7. Config File Support
 CONFIG_FILE = "config.json"
 default_config = {
     "auto_retry_attempts": 3,
@@ -94,6 +96,7 @@ def load_config():
 
 config = load_config()
 
+# 1. Multi-account Support (مدیریت چند اکانت)
 ACCOUNTS_FILE = "accounts.json"
 
 def get_account_data():
@@ -203,13 +206,21 @@ new_bbs_serviceToken = micdata["new_bbs_serviceToken"]
 deviceId = micdata["deviceId"]
 region = micdata['region']
 
+# 5. Region Selector (انتخاب دستی ریجن سرور)
 print(f"\n{BOX}{BOLD}╔══════════════════════════════════════╗{RESET}")
 print(f"{BOX}{BOLD}║{RESET}          {WHITE}{BOLD}REGION SELECTOR{RESET}             {BOX}{BOLD}║{RESET}")
 print(f"{BOX}{BOLD}╠══════════════════════════════════════╣{RESET}")
 print(f"{BOX}{BOLD}║{RESET} Detected Region: {WHITE}{region}{RESET}                  {BOX}{BOLD}║{RESET}")
 print(f"{BOX}{BOLD}╚══════════════════════════════════════╝{RESET}\n")
 
-api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
+region_choice = input(f"{YELLOW}➤ Use default region ({region}) or change? (d/c): {RESET}").strip().lower()
+if region_choice == 'c':
+    print("1. Global SGP (sgp-api.buy.mi.com)\n2. Default")
+    r_sel = input("Select region option (1/2): ").strip()
+    api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
+else:
+    api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
+
 api = api_base
 
 U_state = api + "user/bl-switch/state"
@@ -256,6 +267,7 @@ def state_request():
 
 state_request()
 
+# 2 & 3. Auto Retry & Notification System
 def apply_request():
     print(f"\n{BLUE}[•] Sending unlock request...{RESET}")
     max_retries = config.get("auto_retry_attempts", 3)
@@ -325,6 +337,7 @@ def get_beijing_time():
     utc_time = get_ntp_time()
     return utc_time.astimezone(timezone(timedelta(hours=8)))
 
+# 6. Countdown Timer (تایمر معکوس زنده با پشتیبانی از روز و ساعت)
 def precise_sleep(target_time, precision=0.0005):
     while True:
         current_beijing = get_beijing_time()
@@ -334,12 +347,18 @@ def precise_sleep(target_time, precision=0.0005):
             print()
             return
             
-        hours = int(diff // 3600)
+        days = int(diff // 86400)
+        hours = int((diff % 86400) // 3600)
         minutes = int((diff % 3600) // 60)
         seconds = int(diff % 60)
         millis = int((diff - int(diff)) * 1000)
         
-        sys.stdout.write(f"\r{YELLOW}[⏳] Countdown to Target: {hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d} (CST)    {RESET}")
+        if days > 0:
+            time_str = f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
+        else:
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}"
+            
+        sys.stdout.write(f"\r{YELLOW}[⏳] Countdown to Target: {time_str} (CST)    {RESET}")
         sys.stdout.flush()
         
         sleep_time = max(min(diff - precision/2, 1), precision)
@@ -364,21 +383,21 @@ def measure_latency(url, samples=5):
     return sum(trimmed)/len(trimmed)
 
 def main_loop():
-    # ۱. ارسال درخواست اولیه به محض ورود (الزامی برای دریافت وضعیت و ارور سرور)
+    # ۱. ارسال درخواست اولیه الزامی به محض ورود
     initial_res = apply_request()
     if initial_res == 1:
         print(f"{GREEN}[✔] Unlock request successful on initial try!{RESET}")
         return
 
-    # ۲. اگر ظرفیت پر بود یا ارور داد، تنظیم دقیق زمان روی ساعت ۰۰:۰۰ فردای روز جاری به وقت پکن
+    # ۲. تعیین دقیق تاریخ روز بعد برای ساعت ۰۰:۰۰ پکن (فردا)
     now = get_beijing_time()
-    today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    target = (today_midnight + timedelta(days=1)).replace(microsecond=999000)
+    next_day = now.date() + timedelta(days=1)
+    target = datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, 999000, tzinfo=timezone(timedelta(hours=8)))
 
-    print(f"\n{CYAN}[•] Scheduled target time for next day 00:00 CST: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
+    print(f"\n{CYAN}[•] Scheduled target for next day: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
     write_log(f"Scheduled next request for: {target.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # ۳. ورود به حلقه انتظار پشت صحنه با تایمر معکوس زنده تا ۱ ثانیه مانده به ۰۰:۰۰ پکن
+    # ۳. حلقه انتظار پشت صحنه تا ۱ ثانیه مانده به ساعت ۰۰:۰۰ پکنِ فردا همراه با تایمر معکوس
     while True:
         current_time = get_beijing_time()
         time_to_target = (target - current_time).total_seconds()
@@ -386,23 +405,32 @@ def main_loop():
         if time_to_target <= 1.0:
             print(f"\n{YELLOW}[•] Exactly 1s remaining. Measuring real-time network latency...{RESET}")
             latency = measure_latency(U_apply)
-            print(f"{GREEN}[✓] Latency Offset deducted: {latency:.2f} ms{RESET}")
+            print(f"{GREEN}[✓] Latency Offset (Ping): {latency:.2f} ms deducted from 00:00 CST{RESET}")
             break
             
-        hours = int(time_to_target // 3600)
+        days = int(time_to_target // 86400)
+        hours = int((time_to_target % 86400) // 3600)
         minutes = int((time_to_target % 3600) // 60)
         seconds = int(time_to_target % 60)
         
-        sys.stdout.write(f"\r{YELLOW}[⏳] Waiting... Time left: {hours:02d}:{minutes:02d}:{seconds:02d}    {RESET}")
+        if days > 0:
+            t_str = f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
+        else:
+            t_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            
+        sys.stdout.write(f"\r{YELLOW}[⏳] Waiting... Time left: {t_str}    {RESET}")
         sys.stdout.flush()
         
         time.sleep(0.5)
 
+    # کسر کردن دقیق پینگ از ساعت ۰۰:۰۰ پکن
     execution_time = target - timedelta(milliseconds=latency)
+
+    print(f"\n{BLUE}[•] Final precise trigger time (00:00 CST minus Ping): {execution_time.strftime('%H:%M:%S.%f')}{RESET}")
     precise_sleep(execution_time)
 
-    # ۴. ارسال درخواست نهایی و دقیق در ساعت ۰۰:۰۰ روز بعد
-    print(f"\n{BLUE}[•] Sending final precise request at next day 00:00 CST...{RESET}")
+    # ۴. ارسال درخواست نهایی و دقیق در زمان محاسبه‌شده
+    print(f"\n{BLUE}[•] Sending final precise request...{RESET}")
     result = apply_request()
     if result == 1:
         print(f"{GREEN}[✔] Unlock request successful!{RESET}")
