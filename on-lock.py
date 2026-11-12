@@ -23,7 +23,7 @@ import requests, json, hashlib, urllib.parse, time, sys, base64, ntplib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse, quote
 
-version = "2.5 Ultimate Bulletproof"
+version = "2.6 Smart Scheduler"
 
 try:
     os.system('termux-wake-lock > /dev/null 2>&1')
@@ -36,7 +36,6 @@ def send_notification(title, content):
     except Exception:
         pass
 
-# 4. Log System (ذخیره تاریخچه در فایل)
 def write_log(message):
     try:
         with open("on-lock.log", "a", encoding="utf-8") as log_file:
@@ -75,7 +74,6 @@ print(
 User = "okhttp/4.12.0"
 headers = {"User-Agent": User}
 
-# 7. Config File Support
 CONFIG_FILE = "config.json"
 default_config = {
     "auto_retry_attempts": 3,
@@ -96,7 +94,6 @@ def load_config():
 
 config = load_config()
 
-# 1. Multi-account Support (مدیریت چند اکانت)
 ACCOUNTS_FILE = "accounts.json"
 
 def get_account_data():
@@ -206,7 +203,6 @@ new_bbs_serviceToken = micdata["new_bbs_serviceToken"]
 deviceId = micdata["deviceId"]
 region = micdata['region']
 
-# 5. Region Selector (انتخاب دستی ریجن سرور)
 print(f"\n{BOX}{BOLD}╔══════════════════════════════════════╗{RESET}")
 print(f"{BOX}{BOLD}║{RESET}          {WHITE}{BOLD}REGION SELECTOR{RESET}             {BOX}{BOLD}║{RESET}")
 print(f"{BOX}{BOLD}╠══════════════════════════════════════╣{RESET}")
@@ -254,6 +250,7 @@ except Exception as e:
     print(f"{RED}[✗] Failed to fetch account info: {e}{RESET}")
 
 def state_request():
+    """Check if unlock is already approved."""
     try:
         state = requests.get(U_state, headers=headers).json().get("data", {})
         is_ = state.get("is_pass")
@@ -261,14 +258,14 @@ def state_request():
         if is_ == 1:
             send_notification("Onlock Success", f"Unlock access granted till {deadline_}")
             write_log(f"Unlock access granted till {deadline_}")
-            exit(f"{GREEN}✔ Unlock access granted till {deadline_} (Beijing time){RESET}\n")
+            print(f"{GREEN}✔ Unlock access granted till {deadline_} (Beijing time){RESET}\n")
+            return True
     except Exception:
         pass
+    return False
 
-state_request()
-
-# 2 & 3. Auto Retry & Notification System
 def apply_request():
+    """Send unlock request and return result code."""
     print(f"\n{BLUE}[•] Sending unlock request...{RESET}")
     max_retries = config.get("auto_retry_attempts", 3)
     retry_delay = config.get("retry_delay_seconds", 2)
@@ -334,11 +331,52 @@ def get_ntp_time(servers=["pool.ntp.org", "time.google.com", "time.windows.com"]
     return datetime.now(timezone.utc)
 
 def get_beijing_time():
+    """Get current time in Beijing timezone (UTC+8)."""
     utc_time = get_ntp_time()
     return utc_time.astimezone(timezone(timedelta(hours=8)))
 
-# 6. Countdown Timer (تایمر معکوس زنده با پشتیبانی از روز و ساعت)
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+def get_next_beijing_midnight(from_beijing_time=None):
+    """
+    Calculate the next 00:00 Beijing time from a given Beijing time.
+    Returns a timezone-aware datetime in Beijing time.
+    
+    Example:
+      - If now is 2026-11-12 (day 12) at 15:00 CST  → next midnight = 2026-11-13 00:00:00 CST (day 13)
+      - If now is 2026-11-12 (day 12) at 23:59 CST  → next midnight = 2026-11-13 00:00:00 CST (day 13)
+    """
+    if from_beijing_time is None:
+        from_beijing_time = get_beijing_time()
+    
+    # Always go to the NEXT calendar day at 00:00 CST
+    # (never "today midnight" — that is in the past or too close)
+    next_date = from_beijing_time.date() + timedelta(days=1)
+    return datetime(
+        next_date.year, next_date.month, next_date.day,
+        0, 0, 0, 0,
+        tzinfo=BEIJING_TZ
+    )
+
+def format_local_time(dt_beijing):
+    """
+    Convert a Beijing-time datetime to local system time and return a readable string.
+    Uses UTC offset from NTP so it works in any country (Iran, Netherlands, etc.)
+    """
+    # Get current UTC offset of the local machine via NTP comparison
+    ntp_utc = get_ntp_time()
+    local_now = datetime.now().replace(tzinfo=None)
+    # Approximate local UTC offset
+    utc_naive = ntp_utc.replace(tzinfo=None)
+    local_offset_seconds = round((local_now - utc_naive).total_seconds() / 1800) * 1800
+    local_tz = timezone(timedelta(seconds=local_offset_seconds))
+    local_dt = dt_beijing.astimezone(local_tz)
+    offset_hours = local_offset_seconds / 3600
+    sign = "+" if offset_hours >= 0 else "-"
+    return f"{local_dt.strftime('%Y-%m-%d %H:%M:%S')} (UTC{sign}{abs(offset_hours):.1f})"
+
 def precise_sleep(target_time, precision=0.0005):
+    """Sleep until target_time with live countdown display."""
     while True:
         current_beijing = get_beijing_time()
         diff = (target_time - current_beijing).total_seconds()
@@ -358,13 +396,14 @@ def precise_sleep(target_time, precision=0.0005):
         else:
             time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}"
             
-        sys.stdout.write(f"\r{YELLOW}[⏳] Countdown to Target: {time_str} (CST)    {RESET}")
+        sys.stdout.write(f"\r{YELLOW}[⏳] Countdown to 00:00 CST: {time_str}    {RESET}")
         sys.stdout.flush()
         
         sleep_time = max(min(diff - precision/2, 1), precision)
         time.sleep(sleep_time)
 
 def measure_latency(url, samples=5):
+    """Measure average network latency to the API endpoint in milliseconds."""
     latencies = []
     for _ in range(samples):
         try:
@@ -380,66 +419,113 @@ def measure_latency(url, samples=5):
     latencies.sort()
     trim = int(len(latencies) * 0.2)
     trimmed = latencies[trim:-trim] if trim else latencies
-    return sum(trimmed)/len(trimmed)
+    return sum(trimmed) / len(trimmed)
 
-def main_loop():
-    # ۱. ارسال درخواست اولیه الزامی به محض ورود
-    initial_res = apply_request()
-    if initial_res == 1:
-        print(f"{GREEN}[✔] Unlock request successful on initial try!{RESET}")
-        return
+def wait_and_fire(target_midnight_beijing, attempt_label=""):
+    """
+    Wait until 4 seconds before target midnight (Beijing), measure ping,
+    then fire the request at exactly (00:00 CST - ping_ms).
+    
+    Returns the apply_request() result code.
+    """
+    # ── Phase 1: coarse wait until 4 seconds remain ──────────────────────────
+    print(f"\n{CYAN}[•] Target {attempt_label}: {target_midnight_beijing.strftime('%Y-%m-%d %H:%M:%S')} CST")
+    print(f"{CYAN}[•] Local equivalent: {format_local_time(target_midnight_beijing)}{RESET}")
+    write_log(f"Scheduled request {attempt_label} for: {target_midnight_beijing.strftime('%Y-%m-%d %H:%M:%S')} CST")
 
-    # ۲. تعیین دقیق تاریخ روز بعد برای ساعت ۰۰:۰۰ پکن (فردا)
-    now = get_beijing_time()
-    next_day = now.date() + timedelta(days=1)
-    target = datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, 999000, tzinfo=timezone(timedelta(hours=8)))
-
-    print(f"\n{CYAN}[•] Scheduled target for next day: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
-    write_log(f"Scheduled next request for: {target.strftime('%Y-%m-%d %H:%M:%S')}")
-
-    # ۳. حلقه انتظار پشت صحنه تا ۱ ثانیه مانده به ساعت ۰۰:۰۰ پکنِ فردا همراه با تایمر معکوس
     while True:
-        current_time = get_beijing_time()
-        time_to_target = (target - current_time).total_seconds()
-        
-        if time_to_target <= 1.0:
-            print(f"\n{YELLOW}[•] Exactly 1s remaining. Measuring real-time network latency...{RESET}")
-            latency = measure_latency(U_apply)
-            print(f"{GREEN}[✓] Latency Offset (Ping): {latency:.2f} ms deducted from 00:00 CST{RESET}")
+        current_beijing = get_beijing_time()
+        time_to_target = (target_midnight_beijing - current_beijing).total_seconds()
+
+        if time_to_target <= 4.0:
             break
-            
+
         days = int(time_to_target // 86400)
         hours = int((time_to_target % 86400) // 3600)
         minutes = int((time_to_target % 3600) // 60)
         seconds = int(time_to_target % 60)
-        
+
         if days > 0:
             t_str = f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
         else:
             t_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-            
+
         sys.stdout.write(f"\r{YELLOW}[⏳] Waiting... Time left: {t_str}    {RESET}")
         sys.stdout.flush()
-        
         time.sleep(0.5)
 
-    # کسر کردن دقیق پینگ از ساعت ۰۰:۰۰ پکن
-    execution_time = target - timedelta(milliseconds=latency)
+    # ── Phase 2: measure latency precisely at 4s mark ─────────────────────────
+    print(f"\n{YELLOW}[•] 4 seconds remaining. Measuring network latency...{RESET}")
+    latency = measure_latency(U_apply)
+    print(f"{GREEN}[✓] Network latency: {latency:.2f} ms  →  firing {latency:.0f}ms early{RESET}")
+    write_log(f"Measured latency: {latency:.2f} ms")
 
-    print(f"\n{BLUE}[•] Final precise trigger time (00:00 CST minus Ping): {execution_time.strftime('%H:%M:%S.%f')}{RESET}")
+    # ── Phase 3: precise countdown to (midnight - latency) ───────────────────
+    execution_time = target_midnight_beijing - timedelta(milliseconds=latency)
+    print(f"{BLUE}[•] Adjusted trigger time: {execution_time.strftime('%H:%M:%S.%f')[:-3]} CST{RESET}")
     precise_sleep(execution_time)
 
-    # ۴. ارسال درخواست نهایی و دقیق در زمان محاسبه‌شده
-    print(f"\n{BLUE}[•] Sending final precise request...{RESET}")
-    result = apply_request()
+    # ── Phase 4: fire the request ─────────────────────────────────────────────
+    print(f"\n{BLUE}[•] Sending request now...{RESET}")
+    return apply_request()
+
+
+def main_loop():
+    # ── Step 0: check if unlock is already active ─────────────────────────────
+    if state_request():
+        return
+
+    # ── Step 1: determine the CURRENT Beijing date ───────────────────────────
+    now_beijing = get_beijing_time()
+    beijing_date_str = now_beijing.strftime('%Y-%m-%d')
+
+    print(
+        f"\n{CYAN}{BOLD}╔══════════════════════════════════════╗{RESET}\n"
+        f"{CYAN}{BOLD}║{RESET}        {WHITE}{BOLD}SMART DATE SCHEDULER{RESET}          {CYAN}{BOLD}║{RESET}\n"
+        f"{CYAN}{BOLD}╠══════════════════════════════════════╣{RESET}\n"
+        f"{CYAN}{BOLD}║{RESET}  {YELLOW}Current Beijing Date:{RESET} {WHITE}{beijing_date_str}{RESET}      {CYAN}{BOLD}║{RESET}\n"
+        f"{CYAN}{BOLD}║{RESET}  {YELLOW}Current Beijing Time:{RESET} {WHITE}{now_beijing.strftime('%H:%M:%S')}{RESET}         {CYAN}{BOLD}║{RESET}\n"
+        f"{CYAN}{BOLD}╚══════════════════════════════════════╝{RESET}\n"
+    )
+
+    # ── Step 2: schedule Day 1 attempt → next 00:00 CST ──────────────────────
+    # Example: today is Day 12  →  Day 1 target = Day 13 at 00:00 CST
+    day1_target = get_next_beijing_midnight(now_beijing)
+    day1_date_str = day1_target.strftime('%Y-%m-%d')
+
+    print(f"{CYAN}[•] Day 12 (today) is: {beijing_date_str}{RESET}")
+    print(f"{CYAN}[•] Day 13 attempt scheduled at: {day1_date_str} 00:00:00 CST{RESET}")
+
+    result = wait_and_fire(day1_target, attempt_label=f"Day-1 ({day1_date_str} 00:00 CST)")
+
     if result == 1:
-        print(f"{GREEN}[✔] Unlock request successful!{RESET}")
-        send_notification("Onlock Success", "Bootloader unlock application successful!")
-        write_log("Bootloader unlock application successful!")
+        print(f"{GREEN}[✔] Unlock successful on Day-1 attempt!{RESET}")
+        send_notification("Onlock Success", f"Bootloader unlock successful at {day1_date_str} 00:00 CST")
+        write_log(f"Unlock successful on Day-1 attempt ({day1_date_str})")
+        return
+
+    # ── Step 3: Day-1 failed → schedule Day 2 attempt ────────────────────────
+    # Example: Day 1 attempt was on Day 13  →  Day 2 target = Day 14 at 00:00 CST
+    print(f"\n{RED}[✗] Day-1 attempt failed or quota full. Scheduling Day-2...{RESET}")
+    write_log(f"Day-1 attempt failed. Scheduling Day-2 attempt.")
+
+    day2_target = get_next_beijing_midnight(day1_target)
+    day2_date_str = day2_target.strftime('%Y-%m-%d')
+
+    print(f"{CYAN}[•] Day-2 attempt scheduled at: {day2_date_str} 00:00:00 CST{RESET}")
+    send_notification("Onlock Rescheduled", f"Retrying at {day2_date_str} 00:00 CST")
+
+    result = wait_and_fire(day2_target, attempt_label=f"Day-2 ({day2_date_str} 00:00 CST)")
+
+    if result == 1:
+        print(f"{GREEN}[✔] Unlock successful on Day-2 attempt!{RESET}")
+        send_notification("Onlock Success", f"Bootloader unlock successful at {day2_date_str} 00:00 CST")
+        write_log(f"Unlock successful on Day-2 attempt ({day2_date_str})")
     else:
-        print(f"{RED}[✗] Request failed or quota full again.{RESET}")
-        send_notification("Onlock Failed", "Unlock request failed or quota full.")
-        write_log("Unlock request failed or quota full.")
+        print(f"{RED}[✗] Day-2 attempt also failed. Please run the script again tomorrow.{RESET}")
+        send_notification("Onlock Failed", "Both attempts failed. Try again manually.")
+        write_log(f"Both Day-1 and Day-2 attempts failed.")
+
 
 if __name__ == "__main__":
     main_loop()
