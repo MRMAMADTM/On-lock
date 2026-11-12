@@ -1,59 +1,43 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Colors
-RED='\033[1;31m'
-GREEN='\033[1;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[1;34m'
-CYAN='\033[1;36m'
-WHITE='\033[1;37m'
-RESET='\033[0m'
-
 clear
 
-echo -e "${CYAN}"
+echo -e "\033[1;36m"
 echo "╔════════════════════════════════════════════╗"
 echo "║           ⚡ on-lock Tool ⚡                ║"
 echo "║        Unlock Permission Installer         ║"
 echo "╚════════════════════════════════════════════╝"
-echo -e "${RESET}"
+echo -e "\033[0m"
 
 sleep 0.5
-echo -e "\( {BLUE}[•] Preparing environment... \){RESET}"
+echo -e "\033[1;34m[•] Preparing environment...\033[0m"
 
-# Update packages
 pkg update -y > /dev/null 2>&1
 
-# Install python
-echo -e "\( {YELLOW}[•] Checking Python... \){RESET}"
+echo -e "\033[1;33m[•] Checking Python...\033[0m"
 pkg install python -y > /dev/null 2>&1
 
-# Create folder
-mkdir -p "$HOME/.on-lock"
+mkdir -p $HOME/.on-lock
 
-echo -e "\( {BLUE}[•] Downloading core tool... \){RESET}"
+echo -e "\033[1;34m[•] Downloading core tool...\033[0m"
 
-# Download main script
-curl -L "https://raw.githubusercontent.com/MRMAMADTM/On-lock/main/on-lock.py" \
--o "$HOME/.on-lock/on-lock.py"
+curl -L https://raw.githubusercontent.com/MRMAMADTM/On-lock/main/on-lock.py -o $HOME/.on-lock/on-lock.py
 
-# Check download
-if [ ! -f "$HOME/.on-lock/on-lock.py" ]; then
-    echo -e "\( {RED}[✗] Download failed! Check internet connection or GitHub link. \){RESET}"
+if [ ! -f $HOME/.on-lock/on-lock.py ]; then
+    echo -e "\033[1;31m[✗] Download failed!\033[0m"
     exit 1
 fi
 
-echo -e "\( {BLUE}[•] Creating launcher... \){RESET}"
+echo -e "\033[1;34m[•] Creating launcher...\033[0m"
 
-# Create launcher safely for Termux
-printf '%s\n' '#!/data/data/com.termux/files/usr/bin/bash' > "$PREFIX/bin/on-lock"
-printf '%s\n' 'python "\( HOME/.on-lock/on-lock.py" " \)@"' >> "$PREFIX/bin/on-lock"
-chmod +x "$PREFIX/bin/on-lock"
+echo '#!/data/data/com.termux/files/usr/bin/bash' > $PREFIX/bin/on-lock
+echo "python $HOME/.on-lock/on-lock.py \"\$@\"" >> $PREFIX/bin/on-lock
+chmod +x $PREFIX/bin/on-lock
 
 echo ""
-echo -e "${GREEN}╔══════════════════════════════════════╗"
+echo -e "\033[1;32m╔══════════════════════════════════════╗"
 echo -e "║          ✅ INSTALL COMPLETE         ║"
-echo -e "╚══════════════════════════════════════╝${RESET}"
-echo -e "${WHITE}Made By: \( {CYAN}on-lock \){RESET}"
-echo -e "\( {YELLOW}Run tool using: \){RESET} \( {GREEN}on-lock \){RESET}"
+echo -e "╚══════════════════════════════════════╝\033[0m"
+echo -e "\033[1;37mMade By: \033[1;36mon-lock\033[0m"
+echo -e "\033[1;33mRun tool using: \033[1;32mon-lock\033[0m"
 echo ""
