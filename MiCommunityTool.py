@@ -241,16 +241,25 @@ def login():
             # 2FA
             if "notificationUrl" in res:
                 cookies = handle_2fa(res["notificationUrl"], cookies, headers_login)
-                # after 2FA we may need to re-do auth or follow again
-                # try to continue with existing res if possible, else re-login once
-                if "ssecurity" not in res:
-                    print(f"{YELLOW}Re-authenticating after 2FA...{RESET}")
+                # After 2FA, retry Auth2 with same credentials once (session now trusted)
+                print(f"{YELLOW}Finishing login after 2FA...{RESET}")
+                r = requests.post(
+                    f"{BASE_URL}/pass/serviceLoginAuth2",
+                    data=qs_data,
+                    headers=headers_login,
+                    cookies=cookies,
+                    timeout=15
+                )
+                cookies.update(r.cookies.get_dict())
+                res = parse_response(r)
+                if "notificationUrl" in res:
+                    print(f"{RED}2FA still required after verification. Try again later or disable 2FA temporarily.{RESET}\n")
                     continue
 
             if "ssecurity" not in res or "nonce" not in res or "location" not in res:
                 print(f"{RED}Missing fields: {list(res.keys())}{RESET}")
                 if res.get("description"):
-                    print(res["description"])
+                    print(res.get("description"))
                 print()
                 continue
 
