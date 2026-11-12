@@ -23,7 +23,7 @@ import requests, json, hashlib, urllib.parse, time, sys, base64, ntplib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse, quote
 
-version = "2.0 Ultimate Pro"
+version = "2.2 Initial + Smart Scheduler"
 
 try:
     os.system('termux-wake-lock > /dev/null 2>&1')
@@ -36,7 +36,6 @@ def send_notification(title, content):
     except Exception:
         pass
 
-# ===== Log System (ذخیره تاریخچه در فایل) =====
 def write_log(message):
     try:
         with open("on-lock.log", "a", encoding="utf-8") as log_file:
@@ -75,7 +74,6 @@ print(
 User = "okhttp/4.12.0"
 headers = {"User-Agent": User}
 
-# ===== Config File Management (مدیریت فایل تنظیمات) =====
 CONFIG_FILE = "config.json"
 default_config = {
     "auto_retry_attempts": 3,
@@ -96,7 +94,6 @@ def load_config():
 
 config = load_config()
 
-# ===== Multi-account Support (پشتیبانی از چند اکانت و سوییچ) =====
 ACCOUNTS_FILE = "accounts.json"
 
 def get_account_data():
@@ -120,7 +117,6 @@ def get_account_data():
             if 1 <= c <= len(accounts):
                 return accounts[c - 1]
                 
-    # لاگین جدید و افزودن به لیست
     new_acc = login()
     if new_acc not in accounts:
         accounts.append(new_acc)
@@ -207,24 +203,13 @@ new_bbs_serviceToken = micdata["new_bbs_serviceToken"]
 deviceId = micdata["deviceId"]
 region = micdata['region']
 
-# ===== Region Selector (انتخاب دستی ریجن سرور) =====
 print(f"\n{BOX}{BOLD}╔══════════════════════════════════════╗{RESET}")
 print(f"{BOX}{BOLD}║{RESET}          {WHITE}{BOLD}REGION SELECTOR{RESET}             {BOX}{BOLD}║{RESET}")
 print(f"{BOX}{BOLD}╠══════════════════════════════════════╣{RESET}")
 print(f"{BOX}{BOLD}║{RESET} Detected Region: {WHITE}{region}{RESET}                  {BOX}{BOLD}║{RESET}")
 print(f"{BOX}{BOLD}╚══════════════════════════════════════╝{RESET}\n")
 
-region_choice = input(f"{YELLOW}➤ Use default region ({region}) or change? (d/c): {RESET}").strip().lower()
-if region_choice == 'c':
-    print("1. Global SGP (sgp-api.buy.mi.com)\n2. India / Other")
-    r_sel = input("Select region option (1/2): ").strip()
-    if r_sel == '1':
-        api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
-    else:
-        api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
-else:
-    api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
-
+api_base = "https://sgp-api.buy.mi.com/bbs/api/global/"
 api = api_base
 
 U_state = api + "user/bl-switch/state"
@@ -271,9 +256,8 @@ def state_request():
 
 state_request()
 
-# ===== Auto Retry Support (تلاش خودکار با تنظیمات تعداد و فاصله) =====
 def apply_request():
-    print(f"\n{BLUE}[•] Sending unlock request with Auto Retry config...{RESET}")
+    print(f"\n{BLUE}[•] Sending unlock request...{RESET}")
     max_retries = config.get("auto_retry_attempts", 3)
     retry_delay = config.get("retry_delay_seconds", 2)
     
@@ -341,7 +325,6 @@ def get_beijing_time():
     utc_time = get_ntp_time()
     return utc_time.astimezone(timezone(timedelta(hours=8)))
 
-# ===== Countdown Timer (تایمر معکوس زنده پیشرفته) =====
 def precise_sleep(target_time, precision=0.0005):
     while True:
         current_beijing = get_beijing_time()
@@ -356,7 +339,6 @@ def precise_sleep(target_time, precision=0.0005):
         seconds = int(diff % 60)
         millis = int((diff - int(diff)) * 1000)
         
-        # نمایش تایمر معکوس زنده و دقیق روی ترمینال
         sys.stdout.write(f"\r{YELLOW}[⏳] Countdown to Target: {hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d} (CST)    {RESET}")
         sys.stdout.flush()
         
@@ -382,12 +364,13 @@ def measure_latency(url, samples=5):
     return sum(trimmed)/len(trimmed)
 
 def main_loop():
-    # ۱. اجرای درخواست اولیه و ثبت لاگ
-    res = apply_request()
-    if res == 1:
+    # ۱. ارسال درخواست اولیه به محض ورود (الزامی برای دریافت وضعیت و ارور سرور)
+    initial_res = apply_request()
+    if initial_res == 1:
+        print(f"{GREEN}[✔] Unlock request successful on initial try!{RESET}")
         return
 
-    # ۲. تنظیم دقیق زمان هدف روی ساعت ۰۰:۰۰ فردای روز جاری به وقت پکن
+    # ۲. اگر ظرفیت پر بود یا ارور داد، تنظیم دقیق زمان روی ساعت ۰۰:۰۰ فردای روز جاری به وقت پکن
     now = get_beijing_time()
     today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
     target = (today_midnight + timedelta(days=1)).replace(microsecond=999000)
@@ -395,7 +378,7 @@ def main_loop():
     print(f"\n{CYAN}[•] Scheduled target time for next day 00:00 CST: {target.strftime('%Y-%m-%d %H:%M:%S.%f')} CST{RESET}")
     write_log(f"Scheduled next request for: {target.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # ۳. حلقه انتظار پشت صحنه با تایمر معکوس زنده تا ۱ ثانیه مانده به ۰۰:۰۰ پکن
+    # ۳. ورود به حلقه انتظار پشت صحنه با تایمر معکوس زنده تا ۱ ثانیه مانده به ۰۰:۰۰ پکن
     while True:
         current_time = get_beijing_time()
         time_to_target = (target - current_time).total_seconds()
@@ -418,7 +401,7 @@ def main_loop():
     execution_time = target - timedelta(milliseconds=latency)
     precise_sleep(execution_time)
 
-    # ۴. ارسال درخواست نهایی و ارسال نوتیفیکیشن نتیجه
+    # ۴. ارسال درخواست نهایی و دقیق در ساعت ۰۰:۰۰ روز بعد
     print(f"\n{BLUE}[•] Sending final precise request at next day 00:00 CST...{RESET}")
     result = apply_request()
     if result == 1:
